@@ -1,0 +1,6 @@
+{
+  "name": "juno-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test tests/metrics.test.js"}
+}

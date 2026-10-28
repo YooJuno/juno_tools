@@ -1,0 +1,10 @@
+.juno-monitor-panel { spacing: 16px; padding: 0 8px; }
+.juno-monitor-metric { spacing: 5px; }
+.juno-monitor-caption { font-size: 10px; font-weight: 700; color: #c4c9d1; }
+.juno-monitor-value { font-size: 12px; font-weight: 600; font-feature-settings: "tnum"; min-width: 3.3em; text-align: right; }
+.juno-monitor-warning { color: #f8c86a; }
+.juno-monitor-critical { color: #ff8383; }
+.juno-monitor-title { font-weight: bold; color: #f2f3f5; }
+.juno-monitor-row-caption { color: #d5d9e2; }
+.juno-monitor-detail { margin-left: 28px; font-feature-settings: "tnum"; color: #f2f3f5; }
+.juno-monitor-status { font-size: 0.85em; color: #b0b4bd; }

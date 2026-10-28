@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.juno-system-monitor" path="/org/gnome/shell/extensions/juno-system-monitor/">
+    <key name="refresh-interval" type="i"><range min="1" max="30"/><default>2</default><summary>Polling interval in seconds</summary></key>
+    <key name="show-cpu" type="b"><default>true</default><summary>Show CPU usage</summary></key>
+    <key name="show-gpu" type="b"><default>true</default><summary>Show GPU usage and poll GPU sensors</summary></key>
+    <key name="show-memory" type="b"><default>true</default><summary>Show memory usage</summary></key>
+    <key name="show-disk" type="b"><default>true</default><summary>Show storage capacity usage</summary></key>
+    <key name="disk-path" type="s"><default>'/'</default><summary>Absolute path on the filesystem to monitor</summary></key>
+    <key name="gpu-index" type="i"><range min="0" max="31"/><default>0</default><summary>Index in the NVIDIA then AMD GPU list</summary></key>
+  </schema>
+</schemalist>
