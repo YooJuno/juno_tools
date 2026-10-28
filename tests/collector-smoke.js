@@ -20,7 +20,7 @@ async function run() {
             return GLib.SOURCE_REMOVE;
         }));
         const second = await monitor.sample('/', false);
-        check(second.cpu?.utilization >= 0 && second.cpu?.utilization <= 100, 'CPU delta missing');
+        check(Number.isFinite(second.cpu?.utilization) && second.cpu.utilization >= 0 && second.cpu.utilization <= 100, 'CPU delta missing');
         check(second.gpus.length === 0, 'GPU polling was not disabled');
         const invalid = await monitor.sample('/__juno_monitor_missing_path__', false);
         check(invalid.disk === null && invalid.errors.disk, 'Invalid path must fail independently');
