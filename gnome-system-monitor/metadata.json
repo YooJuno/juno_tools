@@ -5,5 +5,5 @@
   "shell-version": ["46"],
   "url": "https://github.com/YooJuno/juno_tools",
   "settings-schema": "org.gnome.shell.extensions.juno-system-monitor",
-  "version": 5
+  "version": 6
 }

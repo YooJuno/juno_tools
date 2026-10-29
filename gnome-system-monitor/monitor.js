@@ -10,6 +10,8 @@ const MOUNT_CACHE_SECONDS = 30;
 const SENSOR_DISCOVERY_SECONDS = 60;
 const TEMPERATURE_CACHE_SECONDS = 5;
 const IO_TIMEOUT_MS = 1200;
+const CPU_HWMON_NAMES = new Set(['coretemp', 'k10temp', 'zenpower', 'cpu_thermal', 'cpu-thermal']);
+const CPU_THERMAL_TYPES = new Set(['cpu-thermal', 'cpu_thermal', 'cpu-therm', 'x86_pkg_temp']);
 const nowSeconds = () => GLib.get_monotonic_time() / 1e6;
 
 function readNumber(text) {
@@ -282,7 +284,7 @@ export class SystemMonitor {
             this._cpuPrevious = current;
         if (this._stopped || generation !== this._cpuGeneration)
             return {utilization: null, temperature: null};
-        // An optional hwmon driver can stall; keep CPU usage available anyway.
+        // An optional temperature driver can stall; keep CPU usage available anyway.
         const temperature = details ? await this._runTask('cpu-temperature', () => this._cpuTemperature(), 500).catch(() => null) : null;
         return {utilization, temperature};
     }
@@ -293,17 +295,29 @@ export class SystemMonitor {
         if (now - this._temperatureAt < TEMPERATURE_CACHE_SECONDS)
             return this._temperature;
         if (now - this._temperatureDiscoveryAt >= SENSOR_DISCOVERY_SECONDS) {
-            const devices = await this._children('/sys/class/hwmon').catch(() => []);
+            const [devices, zones] = await Promise.all([
+                this._children('/sys/class/hwmon').catch(() => []),
+                this._children('/sys/class/thermal').catch(() => []),
+            ]);
             if (this._stopped || generation !== this._temperatureGeneration)
                 return null;
-            const paths = await Promise.all(devices.map(async device => {
-                const base = `/sys/class/hwmon/${device}`;
-                const name = await this._optionalText(`${base}/name`);
-                if (!['coretemp', 'k10temp', 'zenpower', 'cpu_thermal'].includes(name))
-                    return [];
-                const files = await this._children(base).catch(() => []);
-                return files.filter(file => /^temp\d+_input$/.test(file)).map(file => `${base}/${file}`);
-            }));
+            const paths = await Promise.all([
+                ...devices.filter(device => /^hwmon\d+$/.test(device)).map(async device => {
+                    const base = `/sys/class/hwmon/${device}`;
+                    const name = await this._optionalText(`${base}/name`);
+                    if (!CPU_HWMON_NAMES.has(name))
+                        return [];
+                    const files = await this._children(base).catch(() => []);
+                    return files.filter(file => /^temp\d+_input$/.test(file)).map(file => `${base}/${file}`);
+                }),
+                ...zones.filter(zone => /^thermal_zone\d+$/.test(zone)).map(async zone => {
+                    const base = `/sys/class/thermal/${zone}`;
+                    const type = await this._optionalText(`${base}/type`);
+                    // Thor's cpu-thermal reports CPU_MAX. Match sensor identity,
+                    // never zone number or the hottest GPU/SoC/junction sensor.
+                    return CPU_THERMAL_TYPES.has(type?.toLowerCase()) ? [`${base}/temp`] : [];
+                }),
+            ]);
             if (this._stopped || generation !== this._temperatureGeneration)
                 return null;
             this._temperaturePaths = paths.flat();

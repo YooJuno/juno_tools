@@ -11,6 +11,17 @@ sudo apt install ./juno-system-monitor_@VERSION@_all.deb
 juno-system-monitor enable
 ```
 
+인터넷이 연결된 GNOME 데스크톱 터미널에서 다운로드부터 설치까지 실행하려면:
+
+```bash
+wget -O juno-system-monitor_@VERSION@_all.deb \
+  https://github.com/YooJuno/juno_tools/releases/download/v@VERSION@/juno-system-monitor_@VERSION@_all.deb &&
+sudo apt install ./juno-system-monitor_@VERSION@_all.deb &&
+juno-system-monitor enable
+```
+
+ARM64와 x86-64에서 같은 패키지를 사용합니다. 기존 `.deb`를 업데이트할 때도 같은 명령을 사용하며 설정은 유지됩니다. Jetson Thor의 CPU 온도는 v0.5.1부터 `cpu-thermal` 센서를 탐색합니다. 드라이버가 제공하지 않는 GPU 전용 메모리 등은 `—`로 표시됩니다.
+
 그다음 X11은 **Alt+F2 → r → Enter**, Wayland는 로그아웃 후 다시 로그인합니다. 이후 로그인할 때마다 자동으로 표시됩니다.
 
 이전에 ZIP 또는 소스 설치 스크립트로 설치했다면 사용자 설치가 시스템 패키지보다 우선합니다. `enable` 대신 아래 명령을 실행하세요. 기존 파일을 사용자 데이터 폴더에 백업한 뒤 시스템 패키지로 전환합니다.

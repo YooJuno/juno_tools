@@ -129,6 +129,73 @@ async function policies() {
     }
 }
 
+async function jetsonCpuTemperature() {
+    const monitor = new FakeMonitor();
+    // Thor exposes the CPU_MAX sensor through cpu-thermal, independently of
+    // hwmon. Zone numbers are discovery order, not a stable sensor identity.
+    const sensors = new Map([
+        ['0', ['gpu-thermal', '99000']],
+        ['2', ['soc012-thermal', '98000']],
+        ['3', ['tj-thermal', '97000']],
+        ['7', ['cpu-thermal', '53125']],
+        ['8', ['CPU-therm', '51000']],
+        ['9', ['cpu_thermal', 'N/A']],
+        ['10', ['board-thermal', '96000']],
+    ]);
+    const read = monitor._readText.bind(monitor);
+    monitor._readText = async path => {
+        const match = path.match(/^\/sys\/class\/thermal\/thermal_zone(\d+)\/(type|temp)$/);
+        if (match) {
+            monitor.calls.push(`read:${path}`);
+            const sensor = sensors.get(match[1]);
+            const value = sensor?.[match[2] === 'type' ? 0 : 1];
+            if (value === null || value === undefined)
+                throw new Error('Sensor is unavailable');
+            return value;
+        }
+        if (path === '/sys/class/hwmon/hwmon0/name') {
+            monitor.calls.push(`read:${path}`);
+            return 'ina3221'; // An unrelated hwmon sensor must be ignored.
+        }
+        return read(path);
+    };
+    const children = monitor._children.bind(monitor);
+    let noHwmon = false;
+    monitor._children = async path => {
+        if (path === '/sys/class/thermal') {
+            monitor.calls.push(`children:${path}`);
+            return [...sensors.keys()].map(index => `thermal_zone${index}`).concat('cooling_device0');
+        }
+        if (noHwmon && path === '/sys/class/hwmon')
+            throw new Error('No hwmon interface');
+        return children(path);
+    };
+    try {
+        check(await monitor._cpuTemperature() === 53.125, 'Jetson CPU thermal-zone temperature missing');
+        check(monitor._temperaturePaths.length === 3, 'GPU, SoC or junction sensor selected as CPU temperature');
+        for (const index of ['0', '2', '3', '10'])
+            check(monitor.count(`read:/sys/class/thermal/thermal_zone${index}/temp`) === 0,
+                'An unrelated thermal sensor is polled');
+        const calls = monitor.calls.length;
+        check(await monitor._cpuTemperature() === 53.125 && monitor.calls.length === calls,
+            'Thermal-zone temperature bypasses the five-second cache');
+        monitor._temperatureAt = -Infinity;
+        sensors.get('7')[1] = '54250';
+        check(await monitor._cpuTemperature() === 54.25, 'Thermal-zone reading does not refresh');
+        check(monitor.count('children:/sys/class/thermal') === 1,
+            'Thermal-zone discovery bypasses the sixty-second cache');
+        monitor._temperatureAt = -Infinity;
+        sensors.get('7')[1] = null;
+        sensors.get('8')[1] = '-256000';
+        check(await monitor._cpuTemperature() === null,
+            'Unreadable/invalid CPU sensors reuse an old value or another component temperature');
+        noHwmon = true;
+        monitor._temperatureAt = monitor._temperatureDiscoveryAt = -Infinity;
+        sensors.get('7')[1] = '42000';
+        check(await monitor._cpuTemperature() === 42, 'Thermal zones depend on hwmon being available');
+    } finally { monitor.stop(); }
+}
+
 async function gpuPolicy() {
     const monitor = new FakeMonitor();
     try {
@@ -272,11 +339,12 @@ async function lateResultsAndStop() {
     disk.stop();
 
     const temperature = new FakeMonitor();
-    let releaseDiscovery;
-    temperature._children = () => new Promise(resolve => { releaseDiscovery = resolve; });
+    const releaseDiscovery = [];
+    temperature._children = () => new Promise(resolve => { releaseDiscovery.push(resolve); });
     const pending = temperature._cpuTemperature();
     temperature.stop();
-    releaseDiscovery(['hwmon0']);
+    for (const release of releaseDiscovery)
+        release(['hwmon0', 'thermal_zone7']);
     await pending;
     check(temperature.calls.length === 0 && temperature._temperaturePaths.length === 0,
         'Stopped discovery launches more I/O or revives its cache');
@@ -335,6 +403,7 @@ async function gpuIdentityAndValidation() {
 
 async function run() {
     await policies();
+    await jetsonCpuTemperature();
     await gpuPolicy();
     await hungFilesystem();
     await optionalSensorTimeout();
@@ -349,7 +418,7 @@ async function run() {
         monitor._file(`/unused/${index}`);
     check(monitor._files.size <= 128, 'Preference path changes grow the file cache without limit');
     monitor.stop();
-    print('Monitor regressions passed: lazy collection, caching, failure isolation, GPU pause, deadlines, symlink devices, pending-query limits, coalescing and cleanup.');
+    print('Monitor regressions passed: CPU thermal zones (including Jetson Thor), lazy collection, caching, failure isolation, GPU pause, deadlines, symlink devices, pending-query limits, coalescing and cleanup.');
 }
 const guard = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 15, () => {
     failed = true;
