@@ -1,10 +1,18 @@
-.juno-monitor-panel { spacing: 16px; padding: 0 8px; }
-.juno-monitor-metric { spacing: 5px; }
-.juno-monitor-caption { font-size: 10px; font-weight: 700; color: #c4c9d1; }
-.juno-monitor-value { font-size: 12px; font-weight: 600; font-feature-settings: "tnum"; min-width: 3.3em; text-align: right; }
+.juno-monitor-button { -natural-hpadding: 4px; -minimum-hpadding: 4px; }
+.juno-monitor-panel { spacing: 8px; }
+.juno-monitor-metric { spacing: 4px; }
+.juno-monitor-panel-icon { icon-size: 14px; }
+.juno-monitor-value { font-size: 13px; font-weight: 600; font-feature-settings: "tnum"; min-width: 2.5em; text-align: right; }
 .juno-monitor-warning { color: #f8c86a; }
 .juno-monitor-critical { color: #ff8383; }
-.juno-monitor-title { font-weight: bold; color: #f2f3f5; }
-.juno-monitor-row-caption { color: #d5d9e2; }
-.juno-monitor-detail { margin-left: 28px; font-feature-settings: "tnum"; color: #f2f3f5; }
-.juno-monitor-status { font-size: 0.85em; color: #b0b4bd; }
+
+/* Text and symbolic icons inherit the Shell theme's actual foreground. */
+.juno-monitor-content { width: 22em; padding: 8px 14px 0; spacing: 14px; }
+.juno-monitor-heading { spacing: 12px; padding-bottom: 2px; }
+.juno-monitor-title { font-size: 1em; font-weight: 700; }
+.juno-monitor-section { spacing: 3px; }
+.juno-monitor-section-header { spacing: 7px; }
+.juno-monitor-menu-icon { icon-size: 16px; }
+.juno-monitor-section-title { font-weight: 600; }
+.juno-monitor-section-value { font-weight: 700; font-feature-settings: "tnum"; }
+.juno-monitor-secondary { font-size: 0.92em; font-feature-settings: "tnum"; }

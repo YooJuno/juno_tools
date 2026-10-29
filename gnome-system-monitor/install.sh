@@ -33,6 +33,7 @@ for file in metadata.json extension.js monitor.js metrics.js prefs.js stylesheet
     cp -- "$source_dir/$file" "$staging/$file"
 done
 cp -- "$source_dir"/schemas/*.gschema.xml "$staging/schemas/"
+cp -r -- "$source_dir/icons" "$staging/icons"
 glib-compile-schemas --strict "$staging/schemas"
 mkdir -p -- "$destination"
 cp -r -- "$staging/." "$destination/"

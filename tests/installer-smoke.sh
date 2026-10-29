@@ -52,6 +52,10 @@ gjs -c '
         throw new Error("User extensions remain globally disabled");
 '
 [[ -f "$XDG_DATA_HOME/gnome-shell/extensions/system-monitor@juno-tools/schemas/gschemas.compiled" ]]
+for icon in cpu gpu memory disk; do
+    cmp "$repo_dir/gnome-system-monitor/icons/$icon-symbolic.svg" \
+        "$XDG_DATA_HOME/gnome-shell/extensions/system-monitor@juno-tools/icons/$icon-symbolic.svg"
+done
 if bash "$repo_dir/gnome-system-monitor/install.sh" --invalid >/dev/null 2>&1; then
     echo 'Unexpected argument was accepted' >&2
     exit 1

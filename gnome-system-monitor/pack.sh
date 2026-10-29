@@ -5,5 +5,5 @@ output_dir="${1:-$source_dir/../dist}"
 mkdir -p -- "$output_dir"
 output_dir="$(cd -- "$output_dir" && pwd)"
 gnome-extensions pack "$source_dir" --force --out-dir "$output_dir" \
-    --extra-source=monitor.js --extra-source=metrics.js
+    --extra-source=monitor.js --extra-source=metrics.js --extra-source=icons
 echo "$output_dir/system-monitor@juno-tools.shell-extension.zip"
