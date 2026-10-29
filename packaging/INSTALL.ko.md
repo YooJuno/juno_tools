@@ -48,7 +48,7 @@ gnome-extensions enable system-monitor@juno-tools
 설치 파일과 함께 `SHA256SUMS`를 받은 뒤 같은 폴더에서 실행합니다.
 
 ```bash
-sha256sum -c SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
 ```
 
 이 값은 파일 손상 여부를 확인하는 용도이며 별도 코드 서명은 아닙니다.
