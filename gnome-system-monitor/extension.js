@@ -53,6 +53,7 @@ export default class JunoSystemMonitor extends Extension {
     _icon(key, styleClass) {
         return new St.Icon({
             gicon: new Gio.FileIcon({file: this.dir.get_child(`icons/${key}-symbolic.svg`)}),
+            icon_size: 20,
             style_class: styleClass,
             y_align: Clutter.ActorAlign.CENTER,
         });

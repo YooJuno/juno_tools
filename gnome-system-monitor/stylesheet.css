@@ -1,7 +1,7 @@
 .juno-monitor-button { -natural-hpadding: 4px; -minimum-hpadding: 4px; }
 .juno-monitor-panel { spacing: 8px; }
 .juno-monitor-metric { spacing: 4px; }
-.juno-monitor-panel-icon { icon-size: 14px; }
+.juno-monitor-panel-icon { icon-size: 20px; }
 .juno-monitor-value { font-size: 13px; font-weight: 600; font-feature-settings: "tnum"; min-width: 2.5em; text-align: right; }
 .juno-monitor-warning { color: #f8c86a; }
 .juno-monitor-critical { color: #ff8383; }
@@ -12,7 +12,7 @@
 .juno-monitor-title { font-size: 1em; font-weight: 700; }
 .juno-monitor-section { spacing: 3px; }
 .juno-monitor-section-header { spacing: 7px; }
-.juno-monitor-menu-icon { icon-size: 16px; }
+.juno-monitor-menu-icon { icon-size: 20px; }
 .juno-monitor-section-title { font-weight: 600; }
 .juno-monitor-section-value { font-weight: 700; font-feature-settings: "tnum"; }
 .juno-monitor-secondary { font-size: 0.92em; font-feature-settings: "tnum"; }
