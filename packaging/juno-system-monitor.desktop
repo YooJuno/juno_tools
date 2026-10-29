@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Juno System Monitor Settings
+Name[ko]=Juno 시스템 모니터 설정
+Comment=Configure CPU, GPU, memory and storage indicators
+Comment[ko]=상단 패널의 CPU·GPU·메모리·저장장치 표시 설정
+Exec=/usr/bin/juno-system-monitor preferences
+Icon=utilities-system-monitor-symbolic
+Terminal=false
+Categories=Settings;
+StartupNotify=true

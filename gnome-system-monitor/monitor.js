@@ -30,8 +30,10 @@ export class SystemMonitor {
         this._temperatureDiscoveryAt = -Infinity;
         this._temperature = null;
         this._temperatureAt = -Infinity;
+        this._temperatureGeneration = 0;
         this._amdPaths = [];
         this._amdDiscoveryAt = -Infinity;
+        this._gpuSlots = new Map();
         this._nvidiaSampler = new NvidiaSampler(GLib.find_program_in_path('nvidia-smi'));
     }
 
@@ -39,6 +41,8 @@ export class SystemMonitor {
         if (this._stopped)
             return;
         this._stopped = true;
+        this._cpuGeneration++;
+        this._temperatureGeneration++;
         this._nvidiaSampler.stop();
         for (const task of this._tasks.values()) {
             if (task.timeout)
@@ -50,9 +54,25 @@ export class SystemMonitor {
         this._retryAfter.clear();
         this._cancellable.cancel();
         this._files.clear();
+        this._gpuSlots.clear();
+        this._cpuPrevious = this._diskState = this._temperature = null;
+        this._temperaturePaths = this._amdPaths = [];
+    }
+
+    pauseGpu() {
+        this._nvidiaSampler.pause();
+    }
+
+    pause() {
+        this.pauseGpu();
+        this._cpuPrevious = this._diskState = null;
+        this._cpuGeneration++;
+        this._temperatureGeneration++;
     }
 
     _file(path) {
+        if (this._stopped)
+            throw new Error('Monitor stopped');
         let file = this._files.get(path);
         if (!file) {
             // A path can be changed repeatedly in preferences; bound the cache.
@@ -177,6 +197,17 @@ export class SystemMonitor {
             task.reject = reject;
             task.timeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, timeoutMs, () => {
                 task.timeout = 0;
+                // Late completion must not seed a new delta or revive a cache
+                // whose visible result has already been declared unavailable.
+                if (key === 'cpu') {
+                    this._cpuPrevious = null;
+                    this._cpuGeneration++;
+                } else if (key === 'cpu-temperature') {
+                    this._temperatureAt = -Infinity;
+                    this._temperatureGeneration++;
+                } else if (key.startsWith('disk:') && this._diskState?.path === key.slice(5)) {
+                    this._diskState = null;
+                }
                 // Keep the unfinished operation registered. A slow/unreachable
                 // filesystem must not queue another blocking worker every tick.
                 reject(new Error(`${key} sensor timed out`));
@@ -249,17 +280,22 @@ export class SystemMonitor {
         const utilization = generation === this._cpuGeneration ? cpuUsage(this._cpuPrevious, current) : null;
         if (generation === this._cpuGeneration)
             this._cpuPrevious = current;
+        if (this._stopped || generation !== this._cpuGeneration)
+            return {utilization: null, temperature: null};
         // An optional hwmon driver can stall; keep CPU usage available anyway.
         const temperature = details ? await this._runTask('cpu-temperature', () => this._cpuTemperature(), 500).catch(() => null) : null;
         return {utilization, temperature};
     }
 
     async _cpuTemperature() {
+        const generation = this._temperatureGeneration;
         const now = nowSeconds();
         if (now - this._temperatureAt < TEMPERATURE_CACHE_SECONDS)
             return this._temperature;
         if (now - this._temperatureDiscoveryAt >= SENSOR_DISCOVERY_SECONDS) {
             const devices = await this._children('/sys/class/hwmon').catch(() => []);
+            if (this._stopped || generation !== this._temperatureGeneration)
+                return null;
             const paths = await Promise.all(devices.map(async device => {
                 const base = `/sys/class/hwmon/${device}`;
                 const name = await this._optionalText(`${base}/name`);
@@ -268,11 +304,15 @@ export class SystemMonitor {
                 const files = await this._children(base).catch(() => []);
                 return files.filter(file => /^temp\d+_input$/.test(file)).map(file => `${base}/${file}`);
             }));
+            if (this._stopped || generation !== this._temperatureGeneration)
+                return null;
             this._temperaturePaths = paths.flat();
             this._temperatureDiscoveryAt = now;
         }
         const values = (await Promise.all(this._temperaturePaths.map(path => this._optionalText(path))))
             .map(readNumber).filter(value => value !== null && value > 0 && value < 150000);
+        if (this._stopped || generation !== this._temperatureGeneration)
+            return null;
         this._temperature = values.length ? Math.max(...values) / 1000 : null;
         this._temperatureAt = now;
         return this._temperature;
@@ -286,20 +326,34 @@ export class SystemMonitor {
         const now = nowSeconds();
         if (now - this._amdDiscoveryAt >= SENSOR_DISCOVERY_SECONDS) {
             const cards = await this._children('/sys/class/drm').catch(() => []);
+            if (this._stopped)
+                return [];
             const paths = await Promise.all(cards.filter(name => /^card\d+$/.test(name)).sort().map(async card => {
                 const base = `/sys/class/drm/${card}/device`;
-                return await this._optionalText(`${base}/vendor`) === '0x1002' ? {card, base} : null;
+                if (await this._optionalText(`${base}/vendor`) !== '0x1002')
+                    return null;
+                const uevent = await this._optionalText(`${base}/uevent`);
+                const slot = uevent?.match(/^PCI_SLOT_NAME=(.+)$/m)?.[1];
+                return {card, base, deviceId: slot ?? card};
             }));
+            if (this._stopped)
+                return [];
             this._amdPaths = paths.filter(Boolean);
             this._amdDiscoveryAt = now;
         }
-        return Promise.all(this._amdPaths.map(async ({card, base}) => {
+        return Promise.all(this._amdPaths.map(async ({card, base, deviceId}) => {
             const files = details ? ['gpu_busy_percent', 'mem_info_vram_used', 'mem_info_vram_total'] : ['gpu_busy_percent'];
             const [busy, used, total] = await Promise.all(files.map(file => this._optionalText(`${base}/${file}`)));
+            const utilization = readNumber(busy);
+            const bytes = value => {
+                const number = readNumber(value);
+                return number !== null && number >= 0 ? number : null;
+            };
             return {
-                id: card, name: `AMD ${card}`, utilization: readNumber(busy),
-                memoryUsed: details ? readNumber(used) : null,
-                memoryTotal: details ? readNumber(total) : null, temperature: null,
+                id: card, deviceId, name: `AMD ${card}`,
+                utilization: utilization !== null && utilization >= 0 && utilization <= 100 ? utilization : null,
+                memoryUsed: details ? bytes(used) : null,
+                memoryTotal: details ? bytes(total) : null, temperature: null,
             };
         }));
     }
@@ -309,10 +363,30 @@ export class SystemMonitor {
             this._nvidiaSampler.sample(refreshInterval),
             this._runTask('amd-gpus', () => this._amdGpus(details), 750),
         ]);
-        const gpus = results.filter(result => result.status === 'fulfilled').flatMap(result => result.value);
-        if (!gpus.length && results.some(result => result.status === 'rejected'))
+        if (this._stopped)
+            throw new Error('Monitor stopped');
+        const current = new Map();
+        results.forEach((result, backend) => {
+            if (result.status !== 'fulfilled')
+                return;
+            const source = backend === 0 ? 'nvidia' : 'amd';
+            result.value.forEach((row, index) => {
+                const key = `${source}:${row.uuid ?? row.deviceId ?? row.id ?? index}`;
+                if (!this._gpuSlots.has(key) && this._gpuSlots.size >= 256)
+                    return;
+                const value = {...row, source, unavailable: false};
+                this._gpuSlots.set(key, {id: value.id, uuid: value.uuid, deviceId: value.deviceId, name: value.name, source});
+                current.set(key, value);
+            });
+        });
+        if (!this._gpuSlots.size && results.some(result => result.status === 'rejected'))
             throw new Error('GPU query failed; check the driver and nvidia-smi');
-        return gpus;
+        // Preserve selected indexes through a backend failure/disconnection.
+        // Never silently substitute another card's utilization for that GPU.
+        return [...this._gpuSlots].map(([key, device]) => current.get(key) ?? {
+            ...device, utilization: null, memoryUsed: null, memoryTotal: null,
+            temperature: null, unavailable: true,
+        });
     }
 
     async _disk(path, details) {
@@ -322,6 +396,8 @@ export class SystemMonitor {
         const state = this._diskState;
         if (details || now - state.capacityAt >= CAPACITY_CACHE_SECONDS) {
             const info = await this._filesystemInfo(path);
+            if (this._stopped)
+                throw new Error('Monitor stopped');
             const total = info.get_attribute_uint64('filesystem::size');
             const free = info.get_attribute_uint64('filesystem::free');
             if (!Number.isFinite(total) || !Number.isFinite(free) || total <= 0 || free < 0 || free > total)
@@ -335,6 +411,8 @@ export class SystemMonitor {
                 const [mounts, device] = await Promise.all([
                     this._readText('/proc/self/mountinfo'), this._pathDevice(path).catch(() => null),
                 ]);
+                if (this._stopped)
+                    throw new Error('Monitor stopped');
                 const mount = this._resolveMount(mounts, path, device);
                 if (state.mount?.id !== mount?.id || state.mount?.device !== mount?.device)
                     state.previous = null;

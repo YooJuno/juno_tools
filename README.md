@@ -27,6 +27,16 @@ Ubuntu 상단 패널의 **날짜/시계와 오른쪽 시스템 아이콘 사이*
 
 ### 설치
 
+Releases에서 **Ubuntu 설치 패키지(.deb)** 또는 **GNOME 확장 ZIP**을 받을 수 있습니다.
+
+- [최신 설치 파일](https://github.com/YooJuno/juno_tools/releases/latest)
+- `.deb`: 패키지 설치 앱으로 열거나 `sudo apt install ./juno-system-monitor_0.5.0_all.deb`로 설치합니다. 이후 일반 사용자로 `juno-system-monitor enable`을 실행합니다.
+- 기존 ZIP/소스 설치에서 `.deb`로 전환할 때는 `juno-system-monitor migrate`를 실행합니다. 기존 설치를 백업하고 사용자 설정은 유지합니다.
+- X11은 Alt+F2 → r → Enter, Wayland는 로그아웃/로그인 후 표시됩니다.
+- 앱 목록의 **Juno 시스템 모니터 설정** 또는 `juno-system-monitor preferences`로 설정을 엽니다.
+
+아래는 소스에서 직접 설치하는 방법입니다. `.deb`와 사용자 ZIP/소스 설치 중 한 방식을 사용하세요.
+
 기본 Ubuntu GNOME 환경에서 관리자 권한 없이 설치합니다.
 
 ```bash
@@ -36,6 +46,8 @@ bash gnome-system-monitor/install.sh --enable
 ```
 
 `--enable`은 이 확장의 활성화 상태를 저장하고, 사용자 확장 전체가 꺼져 있으면 함께 켭니다. 다른 확장의 개별 활성화/비활성화 목록은 유지합니다.
+
+GNOME의 설치 금지 정책과 설정 잠금을 확인합니다. 요청한 설정을 저장할 수 없으면 성공으로 표시하지 않습니다. 업데이트는 별도 디렉터리에서 검증한 뒤 교체하며, 교체 실패 시 기존 설치를 복구합니다. 기존 설치의 추가 파일은 보존합니다.
 
 처음 설치한 확장을 GNOME이 아직 인식하지 못하면 **로그아웃 후 다시 로그인**하세요. 활성화 설정이 저장되어 있으므로 자동으로 표시됩니다. 이후 재부팅할 때도 우분투에 로그인하면 자동으로 시작합니다. 업데이트도 설치 스크립트를 다시 실행한 뒤 로그아웃/로그인하면 새 코드가 로드됩니다.
 
@@ -51,6 +63,8 @@ ZIP으로 설치하려면 아래의 패키징 명령으로 ZIP을 생성한 뒤 
 
 ```bash
 bash gnome-system-monitor/pack.sh
+bash packaging/build-release.sh 0.5.0
+bash tests/deb-package.sh
 gnome-extensions install --force dist/system-monitor@juno-tools.shell-extension.zip
 ```
 
@@ -65,11 +79,11 @@ gnome-extensions prefs system-monitor@juno-tools
 ```
 
 - 갱신 주기: 기본 2초, 1~30초.
-- CPU/GPU/MEM/SSD 표시를 개별적으로 켜고 끌 수 있습니다. 모두 끄면 설정 메뉴에 접근할 수 있도록 CPU 표시를 남깁니다.
+- CPU/GPU/MEM/SSD 표시를 개별적으로 켜고 끌 수 있습니다. 모두 끄면 설정 아이콘만 남기고 백그라운드 수집과 주기 타이머를 멈춥니다. 상세 메뉴를 열 때만 필요한 센서를 읽습니다.
 - 메뉴가 닫혀 있으면 숨긴 CPU/RAM/SSD 센서를 읽지 않습니다. 상세 메뉴를 열면 필요한 센서를 수집합니다. GPU 표시를 끄면 메뉴 상태와 관계없이 GPU 조회를 중단합니다.
 - 닫힌 메뉴에서는 온도·디스크 I/O를 조회하지 않고, SSD 용량은 최대 10초 캐시합니다. 상세 메뉴에서는 용량·I/O를 갱신하며 CPU 온도는 5초, 마운트 매핑은 30초 캐시합니다.
-- 저장 경로: 기본 `/`. `/home`, `/mnt/data` 등 실제 경로를 입력하고 적용 버튼을 누릅니다. 별도 파티션이 아니라면 `/`와 같은 용량이 표시됩니다.
-- GPU 인덱스: 기본 `0`. NVIDIA 장치 순서 다음에 AMD 장치 순서로 선택합니다. 없는 인덱스는 `—`로 표시합니다.
+- 저장 경로: 기본 `/`. `/home`, `/mnt/data` 등 실제 경로를 입력하고 적용 버튼을 누릅니다. 경로는 비동기로 확인하며, 검증 실패·시간 초과·창 닫기 시 기존 설정을 유지합니다. 별도 파티션이 아니라면 `/`와 같은 용량이 표시됩니다.
+- GPU 인덱스: 기본 `0`. 처음 발견할 때 NVIDIA 다음 AMD 순서로 슬롯을 만들고, 이후 발견한 장치는 뒤에 추가합니다. 한 세션 동안 슬롯을 유지하며, 연결 해제·드라이버 실패 시 다른 GPU 값으로 대체하지 않고 `—`로 표시합니다. NVIDIA는 UUID, AMD는 제공되는 경우 PCI 주소로 식별합니다.
 
 ### 센서와 제한
 
@@ -83,6 +97,8 @@ gnome-extensions prefs system-monitor@juno-tools
 - 심볼릭 링크로 지정한 저장 경로는 실제 파일시스템의 장치 번호로 I/O 대상을 선택합니다. 장치 변경·카운터 초기화 뒤에는 기준 샘플을 다시 잡습니다.
 
 성능 점검 결과와 측정 방법은 [성능·안정성 검토](docs/performance.md)에 정리했습니다.
+
+추가로 발견한 비동기·설치·설정 정책 문제와 검증 내용은 [전체 흐름 재검토](docs/full-audit.md)에 정리했습니다.
 
 ### 비활성화 및 삭제
 
@@ -100,6 +116,7 @@ npm test
 gjs -m tests/collector-smoke.js
 gjs -m tests/monitor-regression.js
 gjs -m tests/nvidia-regression.js
+gjs -m tests/activation-regression.js
 glib-compile-schemas --strict gnome-system-monitor/schemas
 bash -n gnome-system-monitor/install.sh gnome-system-monitor/pack.sh
 bash tests/installer-smoke.sh

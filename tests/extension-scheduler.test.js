@@ -57,6 +57,8 @@ function fixture(initialSettings = {}) {
                 resolve: result => { this.active--; resolve(result); }}));
         }
         stop() { this.stopped = true; }
+        pauseGpu() { this.gpuPaused = true; }
+        pause() { this.paused = true; }
     }
     class Button extends Actor {
         constructor() { super(); this.menu = new Menu(); }
@@ -162,6 +164,7 @@ test('GPU-off and interval changes schedule promptly without restarting unrelate
     const f = fixture();
     const firstTimer = [...f.timers.keys()][0];
     f.settings.set('show-gpu', false);
+    assert.equal(f.monitor.gpuPaused, true, 'GPU subprocess must be paused even while another sample is pending');
     assert.equal([...f.timers.keys()][0], firstTimer);
     f.settings.set('refresh-interval', 3);
     f.settings.set('refresh-interval', 5);
@@ -178,22 +181,31 @@ test('GPU-off and interval changes schedule promptly without restarting unrelate
     f.extension.disable();
 });
 
-test('hidden collectors are skipped while the all-off panel retains its CPU fallback', async () => {
+test('all-off policy pauses background work while keeping settings reachable', async () => {
     const f = fixture(Object.fromEntries(keys.map(key => [`show-${key}`, false])));
-    const first = f.monitor.calls[0];
-    assert.equal(first.includeGpu, false);
-    assert.equal(first.options.includeCpu, true);
-    assert.equal(first.options.includeMemory, false);
-    assert.equal(first.options.includeDisk, false);
+    assert.equal(f.monitor.calls.length, 0);
+    assert.equal(f.timers.size, 0);
+    assert.equal(f.extension._pausedIcon.visible, true);
+    assert.equal(f.extension._groups.cpu.visible, false);
     f.extension._button.menu.open();
-    first.resolve(snapshot());
-    await flush();
-    const detail = f.monitor.calls[1];
+    const detail = f.monitor.calls[0];
     assert.equal(detail.includeGpu, false);
     assert.equal(detail.options.details, true);
     assert.equal(detail.options.includeMemory, true);
     assert.equal(detail.options.includeDisk, true);
     detail.resolve(snapshot());
+    await flush();
+    f.extension._button.menu.close();
+    assert.equal(f.timers.size, 0);
+    const reads = f.monitor.calls.length;
+    f.extension._requestRefresh(true);
+    assert.equal(f.monitor.calls.length, reads);
+    f.settings.set('show-memory', true);
+    assert.equal(f.timers.size, 1);
+    assert.equal(f.extension._pausedIcon.visible, false);
+    assert.equal(f.monitor.calls.at(-1).options.includeCpu, false);
+    assert.equal(f.monitor.calls.at(-1).options.includeMemory, true);
+    f.monitor.calls.at(-1).resolve(snapshot());
     await flush();
     f.extension.disable();
 });

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+uuid='system-monitor@juno-tools'
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+prefix="$(cd -- "$(dirname -- "$script_path")/.." && pwd -P)"
+system_dir="$prefix/share/gnome-shell/extensions/$uuid"
+helper="$prefix/share/juno-system-monitor/activation.js"
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
+user_dir="$data_dir/gnome-shell/extensions/$uuid"
+
+usage() {
+    echo 'Usage: juno-system-monitor enable|migrate|preferences|status'
+    echo 'enable: save activation for this desktop user'
+    echo 'migrate: back up an older user install, then activate the system package'
+}
+if [[ $# -gt 1 ]]; then usage >&2; exit 1; fi
+if [[ "${1:-}" == --help || "${1:-}" == -h || "${1:-}" == help ]]; then usage; exit 0; fi
+if [[ ${EUID} -eq 0 ]]; then
+    echo 'Run this command as your desktop user, without sudo.' >&2
+    exit 1
+fi
+if [[ "$data_dir" != /* || ! -f "$system_dir/metadata.json" ]]; then
+    echo 'The system package is missing, or XDG_DATA_HOME is not absolute.' >&2
+    exit 1
+fi
+case "${1:-preferences}" in
+    preferences|prefs) exec gnome-extensions prefs "$uuid" ;;
+    status) exec gnome-extensions info "$uuid" ;;
+    enable|migrate)
+        # Installation policy controls user installs. System packages are
+        # administrator-managed; activation still respects all writable locks.
+        gjs -m "$helper" --system-check "$uuid"
+        if [[ -e "$user_dir" || -L "$user_dir" ]]; then
+            if [[ "$1" != migrate ]]; then
+                echo 'An older user install overrides the system package.' >&2
+                echo 'Run: juno-system-monitor migrate' >&2
+                exit 2
+            fi
+            gjs -c '
+                const Gio = imports.gi.Gio;
+                const content = Gio.File.new_for_path(ARGV[0]).load_contents(null)[1];
+                if (JSON.parse(new TextDecoder().decode(content)).uuid !== ARGV[1])
+                    throw new Error("The existing directory is not this extension");
+            ' "$user_dir/metadata.json" "$uuid"
+            mkdir -p -- "$data_dir/juno-system-monitor/backups"
+            archive="$(mktemp -d "$data_dir/juno-system-monitor/backups/user-install.XXXXXX")"
+            mv --no-target-directory -- "$user_dir" "$archive/$uuid"
+            echo "Previous user install backed up: $archive/$uuid"
+        fi
+        gjs -m "$helper" --system-apply "$uuid"
+        echo 'Activation saved for this user.'
+        echo 'X11: Alt+F2, r, Enter. Wayland: log out and back in once.'
+        echo 'Settings: juno-system-monitor preferences'
+        ;;
+    --help|-h|help) usage ;;
+    *) usage >&2; exit 1 ;;
+esac

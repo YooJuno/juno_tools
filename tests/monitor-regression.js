@@ -51,6 +51,8 @@ class FakeMonitor extends SystemMonitor {
             return '70000';
         if (path === '/sys/class/drm/card0/device/vendor')
             return '0x1002';
+        if (path === '/sys/class/drm/card0/device/uevent')
+            return 'DRIVER=amdgpu\nPCI_SLOT_NAME=0000:04:00.0';
         if (path === '/sys/class/drm/card0/device/gpu_busy_percent')
             return '33';
         if (path === '/sys/class/drm/card0/device/mem_info_vram_used')
@@ -120,6 +122,8 @@ async function policies() {
         await monitor.sample('/missing', false, {details: false});
         check(monitor.count('filesystem:/missing') === 1, 'Failed filesystem has no retry delay');
         check((await monitor.sample('/', false, {details: false})).disk.total > 0, 'Changing the path is blocked by a previous path failure');
+        monitor.pause();
+        check(monitor._cpuPrevious === null && monitor._diskState === null, 'Paused monitoring retains stale delta baselines');
     } finally {
         monitor.stop();
     }
@@ -132,6 +136,7 @@ async function gpuPolicy() {
         const compact = await monitor.sample('/', true, options);
         check(monitor.gpuInterval === 7, 'GPU stream did not receive the requested interval');
         check(compact.gpus[0].utilization === 33 && compact.gpus[0].memoryUsed === null, 'Compact AMD data is wrong');
+        check(compact.gpus[0].deviceId === '0000:04:00.0', 'AMD identity is tied to a changeable card index');
         check(!monitor.calls.some(call => call.includes('mem_info_vram')), 'Closed menu polls AMD VRAM');
         const detailed = await monitor.sample('/', true, {...options, details: true});
         check(detailed.gpus[0].memoryUsed === 1024 && detailed.gpus[0].memoryTotal === 4096, 'Detailed AMD VRAM is missing');
@@ -242,6 +247,92 @@ async function concurrentAndStop() {
     monitor.stop();
 }
 
+async function lateResultsAndStop() {
+    const stopped = new SystemMonitor();
+    stopped.stop();
+    await stopped._readText('/proc/stat').catch(() => null);
+    check(stopped._files.size === 0, 'A late caller recreates file objects after stop');
+
+    const cpu = new FakeMonitor();
+    let releaseCpu;
+    cpu._readText = () => new Promise(resolve => { releaseCpu = resolve; });
+    await cpu._runTask('cpu', () => cpu._cpu(false), 10).catch(() => null);
+    releaseCpu('cpu 100 0 0 1000 0 0 0 0');
+    await delay(10);
+    check(cpu._cpuPrevious === null, 'Expired CPU read seeds the next utilization delta');
+    cpu.stop();
+
+    const disk = new FakeMonitor();
+    let releaseDisk;
+    disk._filesystemInfo = () => new Promise(resolve => { releaseDisk = resolve; });
+    await disk._runTask('disk:/', () => disk._disk('/', false), 10).catch(() => null);
+    releaseDisk({get_attribute_uint64: key => key === 'filesystem::size' ? 10000 : 4000});
+    await delay(10);
+    check(disk._diskState === null, 'Expired filesystem read revives its invalidated cache');
+    disk.stop();
+
+    const temperature = new FakeMonitor();
+    let releaseDiscovery;
+    temperature._children = () => new Promise(resolve => { releaseDiscovery = resolve; });
+    const pending = temperature._cpuTemperature();
+    temperature.stop();
+    releaseDiscovery(['hwmon0']);
+    await pending;
+    check(temperature.calls.length === 0 && temperature._temperaturePaths.length === 0,
+        'Stopped discovery launches more I/O or revives its cache');
+}
+
+async function gpuIdentityAndValidation() {
+    const monitor = new FakeMonitor();
+    let failNvidia = false;
+    let failAmd = false;
+    monitor._nvidiaSampler.sample = async () => {
+        if (failNvidia) throw new Error('NVIDIA offline');
+        return [{id: '0', name: 'Selected NVIDIA', utilization: 22}];
+    };
+    monitor._amdGpus = async () => {
+        if (failAmd) throw new Error('AMD offline');
+        return [{id: 'card0', name: 'Other AMD', utilization: 77}];
+    };
+    try {
+        const first = await monitor._gpu(false, 2);
+        check(first[0].name === 'Selected NVIDIA' && first[1].name === 'Other AMD', 'Initial device order changed');
+        failNvidia = true;
+        const missing = await monitor._gpu(false, 2);
+        check(missing[0].name === 'Selected NVIDIA' && missing[0].unavailable && missing[0].utilization === null,
+            'A backend failure silently substitutes another GPU');
+        check(missing[1].utilization === 77, 'Healthy AMD reading was lost');
+        failNvidia = false;
+        const recovered = await monitor._gpu(false, 2);
+        check(recovered[0].utilization === 22 && !recovered[0].unavailable, 'Recovered GPU did not regain its own slot');
+        failAmd = true;
+        const amdMissing = await monitor._gpu(false, 2);
+        check(amdMissing[0].utilization === 22 && amdMissing[1].unavailable, 'AMD failure changed GPU selection');
+    } finally { monitor.stop(); }
+
+    const malformed = new FakeMonitor();
+    const originalRead = malformed._readText.bind(malformed);
+    malformed._readText = path => path.endsWith('gpu_busy_percent') ? Promise.resolve('101') :
+        path.endsWith('mem_info_vram_used') ? Promise.resolve('-5') : originalRead(path);
+    try {
+        const [gpu] = await malformed._amdGpus(true);
+        check(gpu.utilization === null && gpu.memoryUsed === null, 'Corrupt AMD readings appear as real utilization/bytes');
+    } finally { malformed.stop(); }
+
+    const renumbered = new FakeMonitor();
+    let rows = [{id: '0', uuid: 'GPU-A', name: 'Selected A', utilization: 11},
+        {id: '1', uuid: 'GPU-B', name: 'Other B', utilization: 22}];
+    renumbered._nvidiaSampler.sample = async () => rows;
+    renumbered._amdGpus = async () => [];
+    try {
+        await renumbered._gpu(false, 2);
+        rows = [{id: '0', uuid: 'GPU-B', name: 'Other B', utilization: 77}];
+        const after = await renumbered._gpu(false, 2);
+        check(after[0].name === 'Selected A' && after[0].unavailable && after[1].utilization === 77,
+            'NVIDIA driver reindexing silently changes the selected physical GPU');
+    } finally { renumbered.stop(); }
+}
+
 async function run() {
     await policies();
     await gpuPolicy();
@@ -251,6 +342,8 @@ async function run() {
     await pendingPathLimit();
     await hungAmdIsolation();
     await concurrentAndStop();
+    await lateResultsAndStop();
+    await gpuIdentityAndValidation();
     const monitor = new FakeMonitor();
     for (let index = 0; index < 150; index++)
         monitor._file(`/unused/${index}`);
@@ -266,7 +359,7 @@ const guard = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 15, () => {
 });
 run().catch(error => {
     failed = true;
-    printerr(error.stack);
+    printerr(`${error.message}\n${error.stack}`);
 }).finally(() => {
     if (GLib.MainContext.default().find_source_by_id(guard))
         GLib.source_remove(guard);

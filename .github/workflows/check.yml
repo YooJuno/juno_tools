@@ -2,24 +2,34 @@ name: Check system monitor
 on: [push, pull_request]
 permissions:
   contents: read
+concurrency:
+  group: monitor-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '20'
-      - run: sudo apt-get update && sudo apt-get install -y gjs libglib2.0-bin gnome-shell
+          node-version: '24'
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gjs libglib2.0-bin gnome-shell desktop-file-utils
       - run: npm test
       - run: glib-compile-schemas --strict gnome-system-monitor/schemas
       - run: gjs -m tests/collector-smoke.js
       - run: gjs -m tests/monitor-regression.js
       - run: gjs -m tests/nvidia-regression.js
+      - run: gjs -m tests/activation-regression.js
       - run: bash -n gnome-system-monitor/install.sh gnome-system-monitor/pack.sh
       - run: bash tests/installer-smoke.sh
-      - run: bash gnome-system-monitor/pack.sh
-      - uses: actions/upload-artifact@v4
+      - run: bash packaging/build-release.sh
+      - run: bash tests/deb-package.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: juno-system-monitor
-          path: dist/*.shell-extension.zip
+          path: |
+            dist/*.shell-extension.zip
+            dist/*.deb
+            dist/INSTALL.ko.md
+            dist/SHA256SUMS

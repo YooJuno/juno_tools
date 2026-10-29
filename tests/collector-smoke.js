@@ -26,7 +26,7 @@ async function run() {
         check(invalid.disk === null && invalid.errors.disk, 'Invalid path must fail independently');
         check(invalid.memory?.total > 0, 'Disk failure must not break memory collection');
         print(JSON.stringify({cpu: second.cpu, memoryPercent: second.memory.percent,
-            gpus: first.gpus, gpuError: first.errors.gpus ?? null,
+            gpus: first.gpus?.map(({uuid, ...gpu}) => gpu), gpuError: first.errors.gpus ?? null,
             disk: {source: second.disk.mount?.source, percent: second.disk.percent, read: second.disk.read, write: second.disk.write}}));
     } finally {
         monitor.stop();

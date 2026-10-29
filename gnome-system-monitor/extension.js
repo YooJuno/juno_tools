@@ -54,6 +54,9 @@ export default class JunoSystemMonitor extends Extension {
                 this._labels[key] = label;
                 this._groups[key] = group;
             }
+            this._pausedIcon = new St.Icon({icon_name: 'emblem-system-symbolic', icon_size: 20,
+                style_class: 'juno-monitor-panel-icon', visible: false});
+            box.add_child(this._pausedIcon);
             this._button.add_child(box);
             // Index zero of the right box places us between the centered clock and tray.
             Main.panel.addToStatusArea(this.uuid, this._button, 0, 'right');
@@ -63,6 +66,7 @@ export default class JunoSystemMonitor extends Extension {
                 if (!this._alive)
                     return;
                 this._revision++;
+                this._syncPolling();
                 if (open) {
                     if (this._lastSampleHasDetails)
                         this._renderDetails(this._lastSample);
@@ -131,9 +135,6 @@ export default class JunoSystemMonitor extends Extension {
 
     _updateVisibility() {
         const visibility = Object.fromEntries(METRICS.map(([key]) => [key, this._settings.get_boolean(`show-${key}`)]));
-        // Keep settings reachable if all four items were turned off.
-        if (!Object.values(visibility).some(Boolean))
-            visibility.cpu = true;
         for (const [key] of METRICS) {
             if (visibility[key] && !this._groups[key].visible) {
                 setText(this._labels[key], '—');
@@ -142,6 +143,10 @@ export default class JunoSystemMonitor extends Extension {
             setVisible(this._groups[key], visibility[key]);
         }
         setVisible(this._sections.gpu.section, this._settings.get_boolean('show-gpu'));
+        const paused = !Object.values(visibility).some(Boolean);
+        setVisible(this._pausedIcon, paused);
+        if (paused)
+            this._button.accessible_name = 'System Monitor: background monitoring paused';
     }
 
     _onSettingsChanged(key) {
@@ -155,7 +160,10 @@ export default class JunoSystemMonitor extends Extension {
         if (key === 'refresh-interval')
             this._restartTimer();
         if (key.startsWith('show-')) {
+            if (key === 'show-gpu' && !this._settings.get_boolean(key))
+                this._monitor.pauseGpu();
             this._updateVisibility();
+            this._syncPolling();
             if (this._lastSample)
                 this._render(this._lastSample, this._lastSampleHasDetails);
         }
@@ -174,6 +182,9 @@ export default class JunoSystemMonitor extends Extension {
     _restartTimer() {
         if (this._timer)
             GLib.source_remove(this._timer);
+        this._timer = 0;
+        if (!this._shouldPoll())
+            return;
         this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, this._settings.get_int('refresh-interval'), () => {
             if (!this._alive)
                 return GLib.SOURCE_REMOVE;
@@ -182,8 +193,23 @@ export default class JunoSystemMonitor extends Extension {
         });
     }
 
+    _shouldPoll() {
+        return this._button.menu.isOpen || METRICS.some(([key]) => this._groups[key].visible);
+    }
+
+    _syncPolling() {
+        if (!this._shouldPoll()) {
+            if (this._timer)
+                GLib.source_remove(this._timer);
+            this._timer = 0;
+            this._monitor.pause();
+        } else if (!this._timer) {
+            this._restartTimer();
+        }
+    }
+
     _requestRefresh(urgent = false) {
-        if (!this._alive)
+        if (!this._alive || !this._shouldPoll())
             return;
         if (this._busy) {
             // Coalesce user changes, but do not turn slow periodic polls into a
@@ -266,7 +292,7 @@ export default class JunoSystemMonitor extends Extension {
             this._setLevel(key, value);
             summary.push(`${title} ${text}`);
         }
-        const accessibleName = summary.join(', ');
+        const accessibleName = summary.join(', ') || 'System Monitor: background monitoring paused';
         if (this._button.accessible_name !== accessibleName)
             this._button.accessible_name = accessibleName;
         if (this._button.menu.isOpen && hasDetails)
@@ -314,10 +340,11 @@ export default class JunoSystemMonitor extends Extension {
         if (this._sections.disk.section.accessible_name !== storageName)
             this._sections.disk.section.accessible_name = storageName;
         const issues = Object.keys(sample.errors).map(key => `${key}: unavailable`);
-        if (!gpu && this._settings.get_boolean('show-gpu')) {
+        if ((!gpu || gpu.unavailable) && this._settings.get_boolean('show-gpu')) {
             const gpus = sample.gpus ?? [];
             const index = this._settings.get_int('gpu-index');
-            issues.push(gpus.length ? `GPU index ${index} unavailable` : 'GPU: NVIDIA/AMD sensor unavailable');
+            issues.push(gpu?.unavailable ? `${gpu.name}: unavailable` :
+                gpus.length ? `GPU index ${index} unavailable` : 'GPU: NVIDIA/AMD sensor unavailable');
         }
         setText(this._status, issues.join(' · '));
         setVisible(this._status, issues.length > 0);
@@ -339,6 +366,7 @@ export default class JunoSystemMonitor extends Extension {
         this._monitor = null;
         this._labels = null;
         this._groups = null;
+        this._pausedIcon = null;
         this._sections = null;
         this._levels = null;
         this._intervalLabel = null;

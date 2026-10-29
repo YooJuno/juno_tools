@@ -77,7 +77,7 @@ export class NvidiaSampler {
         try {
             run.process = this._spawn([
                 this._executable,
-                '--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu',
+                '--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,uuid',
                 '--format=csv,noheader,nounits', `--loop-ms=${interval * 1000}`,
             ]);
             run.stream = run.process.get_stdout_pipe();
@@ -143,14 +143,19 @@ export class NvidiaSampler {
                     // Linux may interleave Xid/ECC diagnostics with loop output.
                     if (!/^\d+\s*,/.test(line))
                         continue;
+                    const separator = line.lastIndexOf(',');
+                    const uuid = line.slice(separator + 1).trim();
+                    if (!/^GPU-[A-Za-z0-9-]+$/.test(uuid))
+                        continue;
                     let row;
-                    try { [row] = parseNvidia(line); } catch { continue; }
+                    try { [row] = parseNvidia(line.slice(0, separator)); } catch { continue; }
                     if (!row || !/^\d+$/.test(row.id))
                         continue;
-                    if (!run.rows.has(row.id) && run.rows.size >= 256)
+                    if (!run.rows.has(uuid) && run.rows.size >= 256)
                         throw new Error('Too many GPU records');
+                    row.uuid = uuid;
                     run.lastOutput = this._now();
-                    run.rows.set(row.id, {value: row, seen: run.lastOutput});
+                    run.rows.set(uuid, {value: row, seen: run.lastOutput});
                     updated = true;
                 }
                 run.buffer = combined.slice(start);

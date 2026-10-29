@@ -32,9 +32,12 @@ state() {
 gsettings set org.gnome.shell enabled-extensions "['keep-enabled@example.com']"
 gsettings set org.gnome.shell disabled-extensions "['system-monitor@juno-tools', 'keep-disabled@example.com']"
 gsettings set org.gnome.shell disable-user-extensions true
+gsettings set org.gnome.shell allow-extension-installation true
 before="$(state)"
 bash "$repo_dir/gnome-system-monitor/install.sh"
 [[ "$(state)" == "$before" ]] || { echo 'Install without --enable changed settings' >&2; exit 1; }
+destination="$XDG_DATA_HOME/gnome-shell/extensions/system-monitor@juno-tools"
+echo 'keep this user file' > "$destination/local-note.txt"
 
 bash "$repo_dir/gnome-system-monitor/install.sh" --enable
 first="$(state)"
@@ -58,8 +61,39 @@ for icon in cpu gpu memory disk; do
     cmp "$repo_dir/gnome-system-monitor/icons/$icon-symbolic.svg" \
         "$XDG_DATA_HOME/gnome-shell/extensions/system-monitor@juno-tools/icons/$icon-symbolic.svg"
 done
+[[ "$(cat "$destination/local-note.txt")" == 'keep this user file' ]] || { echo 'Update removed unrelated files' >&2; exit 1; }
+
+gsettings set org.gnome.shell allow-extension-installation false
+before="$(state)"
+if XDG_DATA_HOME="$test_dir/blocked-data" bash "$repo_dir/gnome-system-monitor/install.sh" --enable > "$test_dir/blocked.log" 2>&1; then
+    echo 'Installation policy was ignored' >&2
+    exit 1
+fi
+[[ ! -e "$test_dir/blocked-data/gnome-shell/extensions/system-monitor@juno-tools" ]]
+[[ "$(state)" == "$before" ]]
+gsettings set org.gnome.shell allow-extension-installation true
+
+# Fail exactly the final rename after the original directory was backed up.
+# The EXIT handler must restore that original directory, not a partial copy.
+inode="$(stat -c %i "$destination")"
+cat > "$test_dir/bin/mv" <<'SH'
+#!/usr/bin/env bash
+for argument in "$@"; do
+    if [[ "$argument" == */.juno-monitor-stage.* ]]; then exit 97; fi
+done
+exec /usr/bin/mv "$@"
+SH
+chmod +x "$test_dir/bin/mv"
+if bash "$repo_dir/gnome-system-monitor/install.sh" > "$test_dir/rollback.log" 2>&1; then
+    echo 'Injected installation failure was not detected' >&2
+    exit 1
+fi
+rm "$test_dir/bin/mv"
+[[ "$(stat -c %i "$destination")" == "$inode" ]] || { echo 'Previous installation was not restored' >&2; exit 1; }
+[[ "$(cat "$destination/local-note.txt")" == 'keep this user file' ]]
+[[ -z "$(find "$XDG_DATA_HOME/gnome-shell" -maxdepth 1 -name '.juno-monitor-*' -print)" ]]
 if bash "$repo_dir/gnome-system-monitor/install.sh" --invalid >/dev/null 2>&1; then
     echo 'Unexpected argument was accepted' >&2
     exit 1
 fi
-echo 'Installer smoke test passed (first login, persistence, preservation and idempotence).'
+echo 'Installer smoke test passed (first login, policy, persistence, preservation, idempotence and rollback).'
