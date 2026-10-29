@@ -29,7 +29,7 @@ fi
 staging="$(mktemp -d)"
 trap 'rm -rf -- "$staging"' EXIT
 mkdir -p "$staging/schemas"
-for file in metadata.json extension.js monitor.js metrics.js prefs.js stylesheet.css; do
+for file in metadata.json extension.js monitor.js metrics.js nvidia.js prefs.js stylesheet.css; do
     cp -- "$source_dir/$file" "$staging/$file"
 done
 cp -- "$source_dir"/schemas/*.gschema.xml "$staging/schemas/"

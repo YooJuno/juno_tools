@@ -52,6 +52,8 @@ gjs -c '
         throw new Error("User extensions remain globally disabled");
 '
 [[ -f "$XDG_DATA_HOME/gnome-shell/extensions/system-monitor@juno-tools/schemas/gschemas.compiled" ]]
+cmp "$repo_dir/gnome-system-monitor/nvidia.js" \
+    "$XDG_DATA_HOME/gnome-shell/extensions/system-monitor@juno-tools/nvidia.js"
 for icon in cpu gpu memory disk; do
     cmp "$repo_dir/gnome-system-monitor/icons/$icon-symbolic.svg" \
         "$XDG_DATA_HOME/gnome-shell/extensions/system-monitor@juno-tools/icons/$icon-symbolic.svg"

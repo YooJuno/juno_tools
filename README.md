@@ -66,17 +66,23 @@ gnome-extensions prefs system-monitor@juno-tools
 
 - 갱신 주기: 기본 2초, 1~30초.
 - CPU/GPU/MEM/SSD 표시를 개별적으로 켜고 끌 수 있습니다. 모두 끄면 설정 메뉴에 접근할 수 있도록 CPU 표시를 남깁니다.
+- 메뉴가 닫혀 있으면 숨긴 CPU/RAM/SSD 센서를 읽지 않습니다. 상세 메뉴를 열면 필요한 센서를 수집합니다. GPU 표시를 끄면 메뉴 상태와 관계없이 GPU 조회를 중단합니다.
+- 닫힌 메뉴에서는 온도·디스크 I/O를 조회하지 않고, SSD 용량은 최대 10초 캐시합니다. 상세 메뉴에서는 용량·I/O를 갱신하며 CPU 온도는 5초, 마운트 매핑은 30초 캐시합니다.
 - 저장 경로: 기본 `/`. `/home`, `/mnt/data` 등 실제 경로를 입력하고 적용 버튼을 누릅니다. 별도 파티션이 아니라면 `/`와 같은 용량이 표시됩니다.
 - GPU 인덱스: 기본 `0`. NVIDIA 장치 순서 다음에 AMD 장치 순서로 선택합니다. 없는 인덱스는 `—`로 표시합니다.
 
 ### 센서와 제한
 
-- CPU/RAM은 `/proc`에서, 온도/AMD GPU는 `/sys`에서 읽습니다. 비동기 I/O를 사용하며 별도 상주 데몬이나 root 권한이 필요하지 않습니다.
+- CPU/RAM은 `/proc`에서, 온도/AMD GPU는 `/sys`에서 읽습니다. 비동기 I/O를 사용하며 별도 서비스 설치나 root 권한이 필요하지 않습니다.
 - NVIDIA는 드라이버가 제공하는 `nvidia-smi`가 필요합니다. 현재 PC의 RTX 4060 Laptop GPU에서 확인했습니다. AMD는 `amdgpu`의 `gpu_busy_percent` 및 VRAM sysfs 센서가 있는 경우 사용률/VRAM을 읽으며, 실장치 검증은 아직 수행하지 않았습니다. AMD 온도 및 Intel GPU 사용률은 현재 제공하지 않습니다.
-- NVIDIA 조회는 노트북의 외장 GPU 절전에 영향을 줄 수 있습니다. GPU 표시를 끄면 GPU 조회도 중단합니다. 조회 프로세스는 3초 제한을 두고 종료 시 정리합니다.
+- NVIDIA는 GPU 표시가 켜진 동안 `nvidia-smi` 프로세스 하나의 반복 조회를 재사용합니다. 매 갱신마다 프로세스와 NVML을 초기화하던 비용을 줄입니다. 이 PC에서 해당 프로세스의 메모리는 약 23 MiB였습니다. GPU 표시를 끄거나 확장을 종료하면 프로세스도 종료합니다.
+- NVIDIA 조회는 노트북의 외장 GPU 절전에 영향을 줄 수 있습니다. 첫 응답은 3초 제한을 두며, 응답이 멈추면 프로세스를 종료하고 30초 뒤 재시도합니다. 오래된 GPU 값을 정상 값처럼 계속 표시하지 않습니다.
 - MEM은 `(MemTotal - MemAvailable) / MemTotal`입니다. 재사용할 수 있는 캐시를 모두 사용 메모리로 계산하지 않습니다.
 - SSD 아이콘의 수치는 드라이브 종류와 관계없이 **선택한 파일시스템의 용량 사용률**입니다. I/O 속도와 활동률은 해당 마운트의 블록 장치 카운터를 읽습니다. 네트워크/가상 파일시스템처럼 대응하는 블록 장치가 없으면 I/O는 `—`입니다. SMART 수명/고장 예측은 수집하지 않습니다.
 - 센서 하나가 실패해도 나머지 지표는 계속 갱신됩니다. 없는 값을 0%로 오인하지 않도록 `—`로 표시합니다.
+- 심볼릭 링크로 지정한 저장 경로는 실제 파일시스템의 장치 번호로 I/O 대상을 선택합니다. 장치 변경·카운터 초기화 뒤에는 기준 샘플을 다시 잡습니다.
+
+성능 점검 결과와 측정 방법은 [성능·안정성 검토](docs/performance.md)에 정리했습니다.
 
 ### 비활성화 및 삭제
 
@@ -87,11 +93,13 @@ gnome-extensions uninstall system-monitor@juno-tools
 
 ### 개발 및 검증
 
-런타임은 GJS이며 외부 npm 라이브러리는 없습니다. Node.js는 계산/파서 테스트에만 사용합니다.
+런타임은 GJS이며 외부 npm 라이브러리는 없습니다. Node.js는 계산·파서·갱신 일정 테스트에만 사용합니다.
 
 ```bash
 npm test
 gjs -m tests/collector-smoke.js
+gjs -m tests/monitor-regression.js
+gjs -m tests/nvidia-regression.js
 glib-compile-schemas --strict gnome-system-monitor/schemas
 bash -n gnome-system-monitor/install.sh gnome-system-monitor/pack.sh
 bash tests/installer-smoke.sh
@@ -99,6 +107,8 @@ bash gnome-system-monitor/pack.sh
 ```
 
 센서 테스트는 실제 `/proc`와 `/sys`를 읽고, 잘못된 경로에 대한 오류 격리 및 수집 도중 취소도 확인합니다. GitHub Actions에서 이 검사와 설치 ZIP 생성을 수행합니다.
+
+회귀 테스트는 느린 파일시스템의 작업 누적 방지, 숨긴 센서 생략, 장치 변경, GPU 프로세스 재사용·응답 중단·종료·취소를 검사합니다. 성능 측정은 CI 통과 기준으로 사용하지 않습니다.
 
 설치 테스트는 격리된 설정 저장소에서 첫 로그인 전 활성화 저장, 기존 확장 설정 보존, 반복 설치를 확인합니다.
 
