@@ -15,6 +15,7 @@ jobs:
       - run: glib-compile-schemas --strict gnome-system-monitor/schemas
       - run: gjs -m tests/collector-smoke.js
       - run: bash -n gnome-system-monitor/install.sh gnome-system-monitor/pack.sh
+      - run: bash tests/installer-smoke.sh
       - run: bash gnome-system-monitor/pack.sh
       - uses: actions/upload-artifact@v4
         with:

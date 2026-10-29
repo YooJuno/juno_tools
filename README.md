@@ -35,13 +35,17 @@ cd juno_tools
 bash gnome-system-monitor/install.sh --enable
 ```
 
-처음 설치한 확장을 GNOME이 아직 인식하지 못하면 **로그아웃 후 다시 로그인**하고 실행하세요. 업데이트도 설치 스크립트를 다시 실행한 뒤 로그아웃/로그인하면 새 코드가 로드됩니다.
+`--enable`은 이 확장의 활성화 상태를 저장하고, 사용자 확장 전체가 꺼져 있으면 함께 켭니다. 다른 확장의 개별 활성화/비활성화 목록은 유지합니다.
+
+처음 설치한 확장을 GNOME이 아직 인식하지 못하면 **로그아웃 후 다시 로그인**하세요. 활성화 설정이 저장되어 있으므로 자동으로 표시됩니다. 이후 재부팅할 때도 우분투에 로그인하면 자동으로 시작합니다. 업데이트도 설치 스크립트를 다시 실행한 뒤 로그아웃/로그인하면 새 코드가 로드됩니다.
+
+`--enable` 없이 설치한 경우에는 로그아웃/로그인 후 직접 활성화합니다.
 
 ```bash
 gnome-extensions enable system-monitor@juno-tools
 ```
 
-확장이 전체적으로 꺼져 있으면 Extensions 앱에서 확장 사용을 켜야 합니다. 설치 스크립트는 이 전역 설정을 바꾸지 않습니다. 필요한 명령이 없는 최소 설치 환경에서는 `gnome-shell`, `libglib2.0-bin` 패키지가 필요합니다.
+`--enable` 없이 설치했고 확장이 전체적으로 꺼져 있으면 Extensions 앱에서 확장 사용도 켜야 합니다. 필요한 명령이 없는 최소 설치 환경에서는 `gnome-shell`, `gjs`, `libglib2.0-bin` 패키지가 필요합니다.
 
 ZIP으로 설치하려면 아래의 패키징 명령으로 ZIP을 생성한 뒤 설치합니다.
 
@@ -90,10 +94,13 @@ npm test
 gjs -m tests/collector-smoke.js
 glib-compile-schemas --strict gnome-system-monitor/schemas
 bash -n gnome-system-monitor/install.sh gnome-system-monitor/pack.sh
+bash tests/installer-smoke.sh
 bash gnome-system-monitor/pack.sh
 ```
 
 센서 테스트는 실제 `/proc`와 `/sys`를 읽고, 잘못된 경로에 대한 오류 격리 및 수집 도중 취소도 확인합니다. GitHub Actions에서 이 검사와 설치 ZIP 생성을 수행합니다.
+
+설치 테스트는 격리된 설정 저장소에서 첫 로그인 전 활성화 저장, 기존 확장 설정 보존, 반복 설치를 확인합니다.
 
 GNOME 46의 별도 Wayland 테스트 세션에서 상단 위치, 상세 메뉴, 설정 화면, GPU 표시/조회 중단, 갱신 주기 변경, 비활성화 및 재활성화를 확인했습니다. 위 스크린샷은 이 세션에서 실제 하드웨어 값을 읽어 캡처했습니다.
 
