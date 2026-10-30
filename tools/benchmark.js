@@ -3,12 +3,14 @@ import GLib from 'gi://GLib';
 
 const loop = new GLib.MainLoop(null, false);
 let failed = false;
-// From the repository root: gjs -m tools/benchmark.js [module-path] [samples] [gpu] [details] [delay-ms]
+// gjs -m tools/benchmark.js [module-path] [samples] [gpu] [details] [delay-ms] [progressive]
 const moduleUrl = Gio.File.new_for_commandline_arg(ARGV[0] ?? `${GLib.get_current_dir()}/gnome-system-monitor/monitor.js`).get_uri();
 const iterations = Number(ARGV[1] ?? 30);
 const gpu = ARGV[2] === 'true';
 const details = ARGV[3] === 'true';
 const delayMs = Number(ARGV[4] ?? 0);
+const progressive = ARGV[5] === 'true';
+let previews = 0;
 const timings = {};
 const elapsed = [];
 const quantile = (values, q) => [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(values.length * q))];
@@ -44,16 +46,19 @@ async function run() {
     let last;
     try {
         // Exclude initial device discovery from steady-state measurements.
-        for (let i = 0; i < 2; i++) await monitor.sample('/', gpu, {details});
+        const options = {details, onProgress: progressive ? () => previews++ : null};
+        for (let i = 0; i < 2; i++) await monitor.sample('/', gpu, options);
+        previews = 0;
         for (const values of Object.values(timings)) values.length = 0;
         for (const key of Object.keys(operations)) delete operations[key];
         for (let i = 0; i < iterations; i++) {
             const start = GLib.get_monotonic_time();
-            last = await monitor.sample('/', gpu, {details});
+            last = await monitor.sample('/', gpu, options);
             elapsed.push((GLib.get_monotonic_time() - start) / 1000);
             if (delayMs) await pause(delayMs);
         }
         print(JSON.stringify({module: moduleUrl, iterations, gpu, details,
+            progressive, previews,
             operations,
             meanMs: elapsed.reduce((a, b) => a + b, 0) / elapsed.length,
             medianMs: quantile(elapsed, 0.5), p95Ms: quantile(elapsed, 0.95),

@@ -13,6 +13,7 @@ import {formatBytes, formatPercent} from './metrics.js';
 import {SystemMonitor} from './monitor.js';
 
 const METRICS = [['cpu', 'CPU'], ['gpu', 'GPU'], ['memory', 'MEM'], ['disk', 'SSD']];
+const SENSOR_NAMES = {cpu: 'CPU', gpus: 'GPU', memory: 'Memory', disk: 'Storage'};
 const temperature = value => value === null || value === undefined ? '—' : `${Math.round(value)} °C`;
 const setText = (actor, text) => {
     if (actor.text !== text)
@@ -153,7 +154,16 @@ export default class JunoSystemMonitor extends Extension {
         if (!this._alive)
             return;
         if (key === 'gpu-index' && this._lastSample) {
-            // Every GPU is already in the snapshot; selecting one needs no I/O.
+            if (this._lastSample.pending?.includes('gpus')) {
+                setText(this._labels.gpu, '—');
+                this._setLevel('gpu', null);
+                if (this._button.menu.isOpen) {
+                    setText(this._sections.gpu.value, '—');
+                    setText(this._sections.gpu.details[0], 'Reading sensors…');
+                    setText(this._sections.gpu.details[1], '');
+                }
+            }
+            // Selection reuses the completed/in-flight snapshot without extra I/O.
             this._render(this._lastSample, this._lastSampleHasDetails);
             return;
         }
@@ -228,19 +238,23 @@ export default class JunoSystemMonitor extends Extension {
         const monitor = this._monitor;
         const revision = this._revision;
         const details = this._button.menu.isOpen;
+        const render = sample => {
+            if (this._alive && this._monitor === monitor && revision === this._revision) {
+                this._lastRefreshError = null;
+                this._render(sample, details);
+            }
+        };
         const options = {
             details,
             includeCpu: details || this._groups.cpu.visible,
             includeMemory: details || this._groups.memory.visible,
             includeDisk: details || this._groups.disk.visible,
             refreshInterval: this._settings.get_int('refresh-interval'),
+            onProgress: render,
         };
         try {
             const sample = await monitor.sample(this._settings.get_string('disk-path'), this._settings.get_boolean('show-gpu'), options);
-            if (this._alive && this._monitor === monitor && revision === this._revision) {
-                this._lastRefreshError = null;
-                this._render(sample, details);
-            }
+            render(sample);
         } catch (error) {
             if (this._alive && this._monitor === monitor && revision === this._revision) {
                 if (this._button.menu.isOpen) {
@@ -286,11 +300,12 @@ export default class JunoSystemMonitor extends Extension {
         for (const [key, title] of METRICS) {
             if (!this._groups[key].visible)
                 continue;
-            const value = key === 'gpu' ? values.gpu?.utilization : values[key];
-            const text = formatPercent(value);
-            setText(this._labels[key], text);
-            this._setLevel(key, value);
-            summary.push(`${title} ${text}`);
+            if (!sample.pending?.includes(key === 'gpu' ? 'gpus' : key)) {
+                const value = key === 'gpu' ? values.gpu?.utilization : values[key];
+                setText(this._labels[key], formatPercent(value));
+                this._setLevel(key, value);
+            }
+            summary.push(`${title} ${this._labels[key].text}`);
         }
         const accessibleName = summary.join(', ') || 'System Monitor: background monitoring paused';
         if (this._button.accessible_name !== accessibleName)
@@ -329,18 +344,24 @@ export default class JunoSystemMonitor extends Extension {
                 `↓ ${rate(disk?.read)}  ↑ ${rate(disk?.write)} · I/O ${formatPercent(disk?.busy)}`],
         };
         for (const [key, lines] of Object.entries(details)) {
+            if (sample.pending?.includes(key === 'gpu' ? 'gpus' : key))
+                continue;
             if (key === 'gpu' && !this._settings.get_boolean('show-gpu'))
                 continue;
             setText(this._sections[key].value, formatPercent(key === 'gpu' ? gpu?.utilization : values[key]));
             lines.forEach((line, index) => setText(this._sections[key].details[index], line));
         }
         setText(this._intervalLabel, `${this._settings.get_int('refresh-interval')} s`);
-        setText(this._sections.disk.titleLabel, disk ? `Storage · ${disk.path}` : 'Storage');
-        const storageName = disk ? `Storage ${disk.path}` : 'Storage unavailable';
-        if (this._sections.disk.section.accessible_name !== storageName)
-            this._sections.disk.section.accessible_name = storageName;
-        const issues = Object.keys(sample.errors).map(key => `${key}: unavailable`);
-        if ((!gpu || gpu.unavailable) && this._settings.get_boolean('show-gpu')) {
+        if (!sample.pending?.includes('disk')) {
+            setText(this._sections.disk.titleLabel, disk ? `Storage · ${disk.path}` : 'Storage');
+            const storageName = disk ? `Storage ${disk.path}` : 'Storage unavailable';
+            if (this._sections.disk.section.accessible_name !== storageName)
+                this._sections.disk.section.accessible_name = storageName;
+        }
+        const issues = Object.keys(sample.errors).map(key => `${SENSOR_NAMES[key] ?? key}: unavailable`);
+        for (const key of sample.pending ?? [])
+            issues.push(`${SENSOR_NAMES[key] ?? key}: reading…`);
+        if (!sample.pending?.includes('gpus') && (!gpu || gpu.unavailable) && this._settings.get_boolean('show-gpu')) {
             const gpus = sample.gpus ?? [];
             const index = this._settings.get_int('gpu-index');
             issues.push(gpu?.unavailable ? `${gpu.name}: unavailable` :

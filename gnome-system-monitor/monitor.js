@@ -10,6 +10,7 @@ const MOUNT_CACHE_SECONDS = 30;
 const SENSOR_DISCOVERY_SECONDS = 60;
 const TEMPERATURE_CACHE_SECONDS = 5;
 const IO_TIMEOUT_MS = 1200;
+const PROGRESS_DELAY_MS = 50;
 const CPU_HWMON_NAMES = new Set(['coretemp', 'k10temp', 'zenpower', 'cpu_thermal', 'cpu-thermal']);
 const CPU_THERMAL_TYPES = new Set(['cpu-thermal', 'cpu_thermal', 'cpu-therm', 'x86_pkg_temp']);
 const nowSeconds = () => GLib.get_monotonic_time() / 1e6;
@@ -259,23 +260,46 @@ export class SystemMonitor {
         }
         if (!includeGpu)
             this._nvidiaSampler.pause();
-        const results = await Promise.allSettled([
+        const requests = [
             includeCpu ? this._runTask('cpu', () => this._cpu(details)) : Promise.resolve(null),
             includeMemory ? this._runTask('memory', () => this._memory()) : Promise.resolve(null),
             includeGpu ? this._runTask('gpus', () => this._gpu(details, refreshInterval), 3500) : Promise.resolve([]),
             includeDisk ? this._runTask(`disk:${path}`, () => this._disk(path, details)) : Promise.resolve(null),
-        ]);
+        ];
         const keys = ['cpu', 'memory', 'gpus', 'disk'];
         const snapshot = {errors: {}};
-        results.forEach((result, index) => {
-            if (result.status === 'fulfilled')
-                snapshot[keys[index]] = result.value;
-            else {
+        const pending = new Set(keys);
+        const notify = typeof options.onProgress === 'function' ? options.onProgress : null;
+        let progressSource = 0;
+        const settled = key => {
+            pending.delete(key);
+            if (!notify || this._stopped || progressSource || !pending.size)
+                return;
+            // Batch partial results. Fast samples cancel this before it fires,
+            // so the normal path still renders once; slow sensors cannot hide
+            // readings that have already completed.
+            progressSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, PROGRESS_DELAY_MS, () => {
+                progressSource = 0;
+                if (!this._stopped && pending.size) {
+                    try {
+                        notify({...snapshot, errors: {...snapshot.errors}, pending: [...pending]});
+                    } catch { /* A preview failure must not lose the final result. */ }
+                }
+                return GLib.SOURCE_REMOVE;
+            });
+        };
+        try {
+            await Promise.all(requests.map((request, index) => request.then(value => {
+                snapshot[keys[index]] = value;
+            }, error => {
                 snapshot[keys[index]] = null;
-                snapshot.errors[keys[index]] = result.reason.message;
-            }
-        });
-        return snapshot;
+                snapshot.errors[keys[index]] = error?.message ?? String(error);
+            }).then(() => settled(keys[index]))));
+            return snapshot;
+        } finally {
+            if (progressSource)
+                GLib.source_remove(progressSource);
+        }
     }
 
     async _cpu(details) {

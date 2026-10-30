@@ -30,7 +30,7 @@ Ubuntu 상단 패널의 **날짜/시계와 오른쪽 시스템 아이콘 사이*
 Releases에서 **Ubuntu 설치 패키지(.deb)** 또는 **GNOME 확장 ZIP**을 받을 수 있습니다.
 
 - [최신 설치 파일](https://github.com/YooJuno/juno_tools/releases/latest)
-- `.deb`: 패키지 설치 앱으로 열거나 `sudo apt install ./juno-system-monitor_0.5.2_all.deb`로 설치합니다. 이후 일반 사용자로 `juno-system-monitor enable`을 실행합니다.
+- `.deb`: 패키지 설치 앱으로 열거나 `sudo apt install ./juno-system-monitor_0.5.3_all.deb`로 설치합니다. 이후 일반 사용자로 `juno-system-monitor enable`을 실행합니다.
 - 기존 ZIP/소스 설치에서 `.deb`로 전환할 때는 `juno-system-monitor migrate`를 실행합니다. 기존 설치를 백업하고 사용자 설정은 유지합니다.
 - X11은 Alt+F2 → r → Enter, Wayland는 로그아웃/로그인 후 표시됩니다.
 - 앱 목록의 **Juno 시스템 모니터 설정** 또는 `juno-system-monitor preferences`로 설정을 엽니다.
@@ -38,9 +38,9 @@ Releases에서 **Ubuntu 설치 패키지(.deb)** 또는 **GNOME 확장 ZIP**을 
 인터넷이 연결된 다른 PC의 GNOME 데스크톱 터미널에서는 아래 명령으로 설치하거나 업데이트할 수 있습니다. ARM64용 Ubuntu 24.04에서도 같은 패키지를 사용합니다.
 
 ```bash
-wget -O juno-system-monitor_0.5.2_all.deb \
-  https://github.com/YooJuno/juno_tools/releases/download/v0.5.2/juno-system-monitor_0.5.2_all.deb &&
-sudo apt install ./juno-system-monitor_0.5.2_all.deb &&
+wget -O juno-system-monitor_0.5.3_all.deb \
+  https://github.com/YooJuno/juno_tools/releases/download/v0.5.3/juno-system-monitor_0.5.3_all.deb &&
+sudo apt install ./juno-system-monitor_0.5.3_all.deb &&
 juno-system-monitor enable
 ```
 
@@ -99,6 +99,7 @@ gnome-extensions prefs system-monitor@juno-tools
 ### 센서와 제한
 
 - CPU/RAM은 `/proc`에서, 온도/AMD GPU는 `/sys`에서 읽습니다. 비동기 I/O를 사용하며 별도 서비스 설치나 root 권한이 필요하지 않습니다.
+- v0.5.3부터 일부 센서가 늦어지면 완료된 센서 결과를 먼저 표시합니다. 대기 중인 항목은 기존 수치 또는 로딩 표시를 유지하고 `reading…`으로 구분합니다. 빠른 수집은 한 번만 화면에 반영합니다. 설정 변경·비활성화 뒤의 늦은 결과는 무시하며, 센서 주기·시간 제한·동시 작업 수는 늘리지 않습니다.
 - CPU thermal zone은 `type`이 `cpu-thermal`, `CPU-therm`, `cpu_thermal`, `x86_pkg_temp`인 센서만 사용합니다. 센서 번호에 의존하지 않으며, 센서 탐색은 60초·온도는 5초 캐시하고 메뉴를 닫으면 조회하지 않습니다. 읽을 수 없거나 잘못된 값은 `—`로 표시합니다.
 - Jetson Thor / JetPack 7.2.1 사용자의 v0.5.0 화면에서 GPU 사용률·GPU 온도·CPU/RAM/저장장치 사용률이 표시되는 것을 확인했습니다. CPU 온도 누락은 v0.5.1에서 thermal-zone 탐색으로 수정했습니다. Thor 센서 배치를 재현한 회귀 검사와 PC 실센서 검사를 수행했으며, 수정본의 Thor 실기기 온도 표시는 아직 확인하지 않았습니다. 센서 정의는 [NVIDIA Thor thermal zone 문서](https://docs.nvidia.com/jetson/archives/r39.2.1/DeveloperGuide/SD/PlatformPowerAndPerformance/JetsonThor.html#bsp-specific-thermal-zones)를 따릅니다. GPU 전용 메모리는 드라이버에서 제공하지 않으면 `—`로 표시합니다.
 - NVIDIA는 드라이버가 제공하는 `nvidia-smi`가 필요합니다. 현재 PC의 RTX 4060 Laptop GPU에서 확인했습니다. AMD는 `amdgpu`의 `gpu_busy_percent` 및 VRAM sysfs 센서가 있는 경우 사용률/VRAM을 읽으며, 실장치 검증은 아직 수행하지 않았습니다. AMD 온도 및 Intel GPU 사용률은 현재 제공하지 않습니다.

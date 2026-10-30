@@ -222,3 +222,62 @@ test('unchanged panel readings avoid redundant text and style writes', async () 
     assert.deepEqual(labels.map(label => [label.textWrites, label.classWrites]), writes);
     f.extension.disable();
 });
+
+test('partial samples update ready sensors while retaining pending readings', async () => {
+    const f = fixture();
+    f.monitor.calls[0].resolve(snapshot());
+    await flush();
+    f.extension._button.menu.open();
+    const active = f.monitor.calls[1];
+    const partial = {...snapshot(17), gpus: undefined, pending: ['gpus']};
+    active.options.onProgress(partial);
+    assert.equal(f.extension._labels.cpu.text, '17%');
+    assert.equal(f.extension._labels.gpu.text, '40%');
+    assert.match(f.extension._sections.gpu.details[0].text, /Reading/);
+    assert.match(f.extension._status.text, /GPU: reading/);
+    assert.doesNotMatch(f.extension._status.text, /GPU.*unavailable/);
+    f.tick();
+    assert.equal(f.monitor.calls.length, 2, 'Preview released the active sample');
+    active.resolve(snapshot(18));
+    await flush();
+    assert.equal(f.extension._labels.cpu.text, '18%');
+    assert.equal(f.extension._status.visible, false);
+    f.extension.disable();
+});
+
+test('late progress cannot render after a settings change or a new session', async () => {
+    const f = fixture();
+    const old = f.monitor.calls[0];
+    f.settings.set('disk-path', '/home');
+    old.options.onProgress({...snapshot(99), pending: ['gpus']});
+    assert.equal(f.extension._labels.cpu.text, '—');
+    f.extension.disable();
+    f.extension.enable();
+    old.options.onProgress({...snapshot(99), pending: ['gpus']});
+    assert.equal(f.extension._labels.cpu.text, '—');
+    f.tick();
+    assert.equal(f.monitor.calls.length, 1);
+    f.monitor.calls[0].resolve(snapshot());
+    await flush();
+    f.extension.disable();
+});
+
+test('changing GPU selection during a partial update never displays another GPU as selected', async () => {
+    const f = fixture();
+    const reading = snapshot();
+    reading.gpus.push({...reading.gpus[0], name: 'Second GPU', utilization: 81});
+    f.monitor.calls[0].resolve(reading);
+    await flush();
+    f.extension._button.menu.open();
+    const active = f.monitor.calls[1];
+    active.options.onProgress({...snapshot(), gpus: undefined, pending: ['gpus']});
+    f.settings.set('gpu-index', 1);
+    assert.equal(f.extension._labels.gpu.text, '—');
+    assert.equal(f.extension._sections.gpu.details[1].text, '');
+    active.resolve(reading);
+    await flush();
+    assert.equal(f.extension._labels.gpu.text, '81%');
+    assert.equal(f.extension._sections.gpu.details[1].text, 'Second GPU');
+    assert.equal(f.monitor.calls.length, 2);
+    f.extension.disable();
+});

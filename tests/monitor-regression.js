@@ -447,7 +447,67 @@ async function gpuIdentityAndValidation() {
     } finally { renumbered.stop(); }
 }
 
+async function progressiveUpdates() {
+    const monitor = new FakeMonitor();
+    let releaseGpu;
+    monitor._nvidiaSampler.sample = () => new Promise(resolve => { releaseGpu = resolve; });
+    const previews = [];
+    const options = {details: false, onProgress: snapshot => previews.push(snapshot)};
+    try {
+        const pending = monitor.sample('/', true, options);
+        await delay(100);
+        check(previews.length === 1 && previews[0].memory?.total > 0 && previews[0].disk?.total > 0,
+            'Slow GPU hides completed CPU/memory/storage readings');
+        check(previews[0].pending.includes('gpus') && !previews[0].errors.gpus,
+            'Pending GPU is reported as a failed sensor');
+        const first = previews[0];
+        releaseGpu([{id: '0', name: 'Slow GPU', utilization: 24}]);
+        const final = await pending;
+        check(final.gpus[0].utilization === 24 && !final.pending?.length,
+            'Final GPU sample is lost after a partial update');
+        check(first.pending.includes('gpus') && first.gpus === undefined,
+            'Completing a sensor mutates an already published snapshot');
+        await delay(70);
+        check(previews.length === 1, 'A stale preview fires after the final sample');
+    } finally { monitor.stop(); }
+
+    const fast = new FakeMonitor();
+    let fastPreviews = 0;
+    try {
+        await fast.sample('/', false, {details: false, onProgress: () => fastPreviews++});
+        await delay(70);
+        check(fastPreviews === 0, 'Fast sensors create unnecessary partial redraws');
+    } finally { fast.stop(); }
+
+    const cancelled = new FakeMonitor();
+    cancelled._nvidiaSampler.sample = () => new Promise(() => {});
+    let afterStop = 0;
+    const pending = cancelled.sample('/', true, {details: false, onProgress: () => afterStop++});
+    await delay(10);
+    cancelled.stop();
+    await pending;
+    await delay(70);
+    check(afterStop === 0, 'A preview callback survives monitor shutdown');
+
+    const brokenPreview = new FakeMonitor();
+    let release;
+    let callbacks = 0;
+    brokenPreview._nvidiaSampler.sample = () => new Promise(resolve => { release = resolve; });
+    try {
+        const pending = brokenPreview.sample('/', true, {details: false, onProgress: () => {
+            callbacks++;
+            throw new Error('Preview consumer failed');
+        }});
+        await delay(100);
+        release([]);
+        const final = await pending;
+        check(callbacks === 1 && final.memory.total > 0 && !final.errors.gpus,
+            'A preview exception corrupts the final sensor result');
+    } finally { brokenPreview.stop(); }
+}
+
 async function run() {
+    await progressiveUpdates();
     await policies();
     await jetsonCpuTemperature();
     await cachedPollingCosts();
