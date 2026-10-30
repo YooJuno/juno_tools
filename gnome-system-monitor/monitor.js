@@ -252,8 +252,10 @@ export class SystemMonitor {
             this._cpuGeneration++;
         }
         if (!includeDisk || !details) {
-            if (this._diskState)
+            if (this._diskState) {
                 this._diskState.previous = null;
+                this._diskState.details = false;
+            }
         }
         if (!includeGpu)
             this._nvidiaSampler.pause();
@@ -285,7 +287,9 @@ export class SystemMonitor {
         if (this._stopped || generation !== this._cpuGeneration)
             return {utilization: null, temperature: null};
         // An optional temperature driver can stall; keep CPU usage available anyway.
-        const temperature = details ? await this._runTask('cpu-temperature', () => this._cpuTemperature(), 500).catch(() => null) : null;
+        const temperature = !details ? null : nowSeconds() - this._temperatureAt < TEMPERATURE_CACHE_SECONDS
+            ? this._temperature
+            : await this._runTask('cpu-temperature', () => this._cpuTemperature(), 500).catch(() => null);
         return {utilization, temperature};
     }
 
@@ -373,9 +377,12 @@ export class SystemMonitor {
     }
 
     async _gpu(details, refreshInterval) {
+        // A negative discovery result is valid for the same TTL as a positive
+        // one; do not create a task/deadline per tick on NVIDIA-only machines.
+        const noAmd = this._amdPaths.length === 0 && nowSeconds() - this._amdDiscoveryAt < SENSOR_DISCOVERY_SECONDS;
         const results = await Promise.allSettled([
             this._nvidiaSampler.sample(refreshInterval),
-            this._runTask('amd-gpus', () => this._amdGpus(details), 750),
+            noAmd ? Promise.resolve([]) : this._runTask('amd-gpus', () => this._amdGpus(details), 750),
         ]);
         if (this._stopped)
             throw new Error('Monitor stopped');
@@ -406,9 +413,12 @@ export class SystemMonitor {
     async _disk(path, details) {
         const now = nowSeconds();
         if (this._diskState?.path !== path)
-            this._diskState = {path, capacity: null, capacityAt: -Infinity, mount: null, mountAt: -Infinity, blockAvailable: null, previous: null};
+            this._diskState = {path, capacity: null, capacityAt: -Infinity, details: false,
+                mount: null, mountAt: -Infinity, blockAvailable: null, previous: null};
         const state = this._diskState;
-        if (details || now - state.capacityAt >= CAPACITY_CACHE_SECONDS) {
+        // Refresh once when opening details, then cache capacity independently
+        // of the live I/O counters. Avoid statfs on every open-menu refresh.
+        if ((details && !state.details) || now - state.capacityAt >= CAPACITY_CACHE_SECONDS) {
             const info = await this._filesystemInfo(path);
             if (this._stopped)
                 throw new Error('Monitor stopped');
@@ -419,6 +429,7 @@ export class SystemMonitor {
             state.capacity = {total, free, used: total - free, percent: clamp((total - free) / total * 100)};
             state.capacityAt = now;
         }
+        state.details = details;
         let rates = {read: null, write: null, busy: null};
         if (details) {
             if (now - state.mountAt >= MOUNT_CACHE_SECONDS) {

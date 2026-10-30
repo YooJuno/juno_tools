@@ -21,6 +21,16 @@ const read = path => new TextDecoder().decode(Gio.File.new_for_path(path).load_c
 async function run() {
     const {SystemMonitor} = await import(moduleUrl);
     const monitor = new SystemMonitor();
+    const operations = {};
+    for (const name of ['_readText', '_children', '_filesystemInfo', '_pathDevice', '_runTask']) {
+        const original = monitor[name]?.bind(monitor);
+        if (!original) continue;
+        monitor[name] = (...args) => {
+            const key = `${name}:${args[0]}`;
+            operations[key] = (operations[key] ?? 0) + 1;
+            return original(...args);
+        };
+    }
     for (const name of ['_cpu', '_cpuTemperature', '_memory', '_gpu', '_nvidiaGpus', '_disk']) {
         if (typeof monitor[name] !== 'function') continue;
         const original = monitor[name].bind(monitor);
@@ -36,6 +46,7 @@ async function run() {
         // Exclude initial device discovery from steady-state measurements.
         for (let i = 0; i < 2; i++) await monitor.sample('/', gpu, {details});
         for (const values of Object.values(timings)) values.length = 0;
+        for (const key of Object.keys(operations)) delete operations[key];
         for (let i = 0; i < iterations; i++) {
             const start = GLib.get_monotonic_time();
             last = await monitor.sample('/', gpu, {details});
@@ -43,6 +54,7 @@ async function run() {
             if (delayMs) await pause(delayMs);
         }
         print(JSON.stringify({module: moduleUrl, iterations, gpu, details,
+            operations,
             meanMs: elapsed.reduce((a, b) => a + b, 0) / elapsed.length,
             medianMs: quantile(elapsed, 0.5), p95Ms: quantile(elapsed, 0.95),
             methods: Object.fromEntries(Object.entries(timings).map(([name, values]) => [name,

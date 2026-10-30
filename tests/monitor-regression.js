@@ -196,6 +196,52 @@ async function jetsonCpuTemperature() {
     } finally { monitor.stop(); }
 }
 
+async function cachedPollingCosts() {
+    const monitor = new FakeMonitor();
+    const requests = new Map();
+    const task = monitor._runTask.bind(monitor);
+    monitor._runTask = (key, ...args) => {
+        requests.set(key, (requests.get(key) ?? 0) + 1);
+        return task(key, ...args);
+    };
+    try {
+        await monitor.sample('/', false, {details: true});
+        const second = await monitor.sample('/', false, {details: true});
+        check(monitor.count('filesystem:/') === 1, 'Open menu re-queries cached filesystem capacity');
+        check(monitor.count('read:/sys/dev/block/259:2/stat') === 2 && Number.isFinite(second.disk.read),
+            'Capacity caching stops live disk I/O updates');
+        check(requests.get('cpu-temperature') === 1 && second.cpu.temperature === 70,
+            'Cached temperature still creates a deadline/task');
+        monitor._diskState.capacityAt = -Infinity;
+        await monitor.sample('/', false, {details: true});
+        check(monitor.count('filesystem:/') === 2, 'Expired capacity cache does not refresh');
+        await monitor.sample('/', false, {details: false});
+        await monitor.sample('/', false, {details: true});
+        check(monitor.count('filesystem:/') === 3, 'Opening the menu does not refresh capacity once');
+    } finally { monitor.stop(); }
+
+    const noAmd = new FakeMonitor();
+    const children = noAmd._children.bind(noAmd);
+    let attached = false;
+    noAmd._children = path => path === '/sys/class/drm' && !attached ? Promise.resolve([]) : children(path);
+    let amdTasks = 0;
+    const gpuTask = noAmd._runTask.bind(noAmd);
+    noAmd._runTask = (key, ...args) => {
+        if (key === 'amd-gpus') amdTasks++;
+        return gpuTask(key, ...args);
+    };
+    try {
+        for (let i = 0; i < 3; i++)
+            await noAmd._gpu(false, 2);
+        check(amdTasks === 1, 'Known absence of AMD hardware still creates a deadline every poll');
+        attached = true;
+        noAmd._amdDiscoveryAt = -Infinity;
+        const found = await noAmd._gpu(false, 2);
+        check(amdTasks === 2 && found[0]?.utilization === 33,
+            'Negative discovery cache prevents AMD hotplug detection');
+    } finally { noAmd.stop(); }
+}
+
 async function gpuPolicy() {
     const monitor = new FakeMonitor();
     try {
@@ -404,6 +450,7 @@ async function gpuIdentityAndValidation() {
 async function run() {
     await policies();
     await jetsonCpuTemperature();
+    await cachedPollingCosts();
     await gpuPolicy();
     await hungFilesystem();
     await optionalSensorTimeout();

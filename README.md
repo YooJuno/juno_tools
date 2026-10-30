@@ -30,7 +30,7 @@ Ubuntu 상단 패널의 **날짜/시계와 오른쪽 시스템 아이콘 사이*
 Releases에서 **Ubuntu 설치 패키지(.deb)** 또는 **GNOME 확장 ZIP**을 받을 수 있습니다.
 
 - [최신 설치 파일](https://github.com/YooJuno/juno_tools/releases/latest)
-- `.deb`: 패키지 설치 앱으로 열거나 `sudo apt install ./juno-system-monitor_0.5.1_all.deb`로 설치합니다. 이후 일반 사용자로 `juno-system-monitor enable`을 실행합니다.
+- `.deb`: 패키지 설치 앱으로 열거나 `sudo apt install ./juno-system-monitor_0.5.2_all.deb`로 설치합니다. 이후 일반 사용자로 `juno-system-monitor enable`을 실행합니다.
 - 기존 ZIP/소스 설치에서 `.deb`로 전환할 때는 `juno-system-monitor migrate`를 실행합니다. 기존 설치를 백업하고 사용자 설정은 유지합니다.
 - X11은 Alt+F2 → r → Enter, Wayland는 로그아웃/로그인 후 표시됩니다.
 - 앱 목록의 **Juno 시스템 모니터 설정** 또는 `juno-system-monitor preferences`로 설정을 엽니다.
@@ -38,9 +38,9 @@ Releases에서 **Ubuntu 설치 패키지(.deb)** 또는 **GNOME 확장 ZIP**을 
 인터넷이 연결된 다른 PC의 GNOME 데스크톱 터미널에서는 아래 명령으로 설치하거나 업데이트할 수 있습니다. ARM64용 Ubuntu 24.04에서도 같은 패키지를 사용합니다.
 
 ```bash
-wget -O juno-system-monitor_0.5.1_all.deb \
-  https://github.com/YooJuno/juno_tools/releases/download/v0.5.1/juno-system-monitor_0.5.1_all.deb &&
-sudo apt install ./juno-system-monitor_0.5.1_all.deb &&
+wget -O juno-system-monitor_0.5.2_all.deb \
+  https://github.com/YooJuno/juno_tools/releases/download/v0.5.2/juno-system-monitor_0.5.2_all.deb &&
+sudo apt install ./juno-system-monitor_0.5.2_all.deb &&
 juno-system-monitor enable
 ```
 
@@ -92,7 +92,7 @@ gnome-extensions prefs system-monitor@juno-tools
 - 갱신 주기: 기본 2초, 1~30초.
 - CPU/GPU/MEM/SSD 표시를 개별적으로 켜고 끌 수 있습니다. 모두 끄면 설정 아이콘만 남기고 백그라운드 수집과 주기 타이머를 멈춥니다. 상세 메뉴를 열 때만 필요한 센서를 읽습니다.
 - 메뉴가 닫혀 있으면 숨긴 CPU/RAM/SSD 센서를 읽지 않습니다. 상세 메뉴를 열면 필요한 센서를 수집합니다. GPU 표시를 끄면 메뉴 상태와 관계없이 GPU 조회를 중단합니다.
-- 닫힌 메뉴에서는 온도·디스크 I/O를 조회하지 않고, SSD 용량은 최대 10초 캐시합니다. 상세 메뉴에서는 용량·I/O를 갱신하며 CPU 온도는 5초, 마운트 매핑은 30초 캐시합니다.
+- 닫힌 메뉴에서는 온도·디스크 I/O를 조회하지 않습니다. SSD 용량은 메뉴를 열 때 한 번 최신 조회한 뒤 최대 10초 캐시하고, 상세 메뉴의 디스크 I/O는 설정 주기마다 갱신합니다. CPU 온도는 5초, 마운트 매핑은 30초 캐시합니다.
 - 저장 경로: 기본 `/`. `/home`, `/mnt/data` 등 실제 경로를 입력하고 적용 버튼을 누릅니다. 경로는 비동기로 확인하며, 검증 실패·시간 초과·창 닫기 시 기존 설정을 유지합니다. 별도 파티션이 아니라면 `/`와 같은 용량이 표시됩니다.
 - GPU 인덱스: 기본 `0`. 처음 발견할 때 NVIDIA 다음 AMD 순서로 슬롯을 만들고, 이후 발견한 장치는 뒤에 추가합니다. 한 세션 동안 슬롯을 유지하며, 연결 해제·드라이버 실패 시 다른 GPU 값으로 대체하지 않고 `—`로 표시합니다. NVIDIA는 UUID, AMD는 제공되는 경우 PCI 주소로 식별합니다.
 
